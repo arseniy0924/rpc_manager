@@ -5,6 +5,8 @@ Flask-SQLAlchemy==3.1.1
 eventlet==0.33.3  # Required for SocketIO async mode
 zeroconf==0.131.0 # For mDNS service discovery (Server side)
 requests==2.31.0  # For GitHub API calls
+charset-normalizer==3.3.2 # FIX: Обязательно для сборки requests в EXE
+chardet==5.2.0            # FIX: Запасной вариант кодировок для requests
 
 # --- Client Dependencies ---
 psutil==5.9.6     # System metrics (CPU, RAM)

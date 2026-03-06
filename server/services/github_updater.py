@@ -56,52 +56,46 @@ class LlamaGitHubFetcher:
         return self._cache if self._cache is not None else []
 
     def parse_windows_assets(self, release_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """
-        Parses assets from a single release JSON to find Windows binaries.
-        Classifies them by backend (cuda, vulkan, cpu/avx).
-        
-        Returns a dictionary mapping backend names to asset details (url, size_mb).
-        """
         backends = {}
         assets = release_json.get('assets', [])
-        
+
+        # Сначала найдем основной исполняемый архив для каждой архитектуры
         for asset in assets:
             name = asset.get('name', '').lower()
             if not name.endswith('.zip') or 'win' not in name:
                 continue
-            
-            download_url = asset.get('browser_download_url')
-            size_bytes = asset.get('size', 0)
-            size_mb = round(size_bytes / (1024 * 1024), 2)
-            
-            asset_info = {
-                "url": download_url,
-                "size_mb": size_mb,
-                "filename": asset.get('name')
-            }
 
-            # Classification logic
+            # Игнорируем файлы библиотек на первом проходе
+            if any(x in name for x in ['cudart', 'clblast', 'openblas']):
+                continue
+
+            download_url = asset.get('browser_download_url')
+            size_mb = round(asset.get('size', 0) / (1024 * 1024), 2)
+
+            info = {"url": download_url, "size_mb": size_mb, "filename": asset.get('name'), "extra_assets": []}
+
             if 'cuda' in name:
-                # Often cuda versions have specific versions like cuda11 or cuda12
-                # For simplicity, we can just key them by 'cuda' or specific cuda version if needed.
-                # Let's try to capture specific cuda version if present, else just 'cuda'
-                if 'cuda12' in name:
-                    backends['cuda12'] = asset_info
-                elif 'cuda11' in name:
-                    backends['cuda11'] = asset_info
-                else:
-                    backends['cuda'] = asset_info
+                key = 'cuda12' if 'cuda12' in name else 'cuda'
+                backends[key] = info
             elif 'vulkan' in name:
-                backends['vulkan'] = asset_info
+                backends['vulkan'] = info
             elif 'avx2' in name:
-                backends['avx2'] = asset_info
-            elif 'avx' in name: # older avx
-                backends['avx'] = asset_info
-            else:
-                # Fallback for generic CPU version if no specific instruction set is mentioned
-                # or if it's just 'bin-win-...'
-                backends['cpu'] = asset_info
-                
+                backends['avx2'] = info
+            elif 'bin-win-x64.zip' in name:  # Базовая версия
+                backends['cpu'] = info
+
+        # Теперь вторым проходом добавим DLL (extra_assets) к соответствующим бэкендам
+        for asset in assets:
+            name = asset.get('name', '').lower()
+            if 'cudart' in name and 'win' in name:
+                # Добавляем рантайм CUDA к существующим cuda-бэкендам
+                for key in backends:
+                    if 'cuda' in key:
+                        backends[key]['extra_assets'].append({
+                            "url": asset.get('browser_download_url'),
+                            "size_mb": round(asset.get('size', 0) / (1024 * 1024), 2),
+                            "filename": asset.get('name')
+                        })
         return backends
 
     def get_available_versions(self) -> Dict[str, Any]:

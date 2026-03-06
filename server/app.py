@@ -16,6 +16,10 @@ from server.services.discovery import ServerDiscovery
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- ДОБАВЛЕНО: Отключаем спам от Flask (запросы GET 200) ---
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+# -----------------------------------------------------------
 def create_app():
     """
     Application Factory function.
@@ -43,7 +47,7 @@ if __name__ == '__main__':
 
     # Initialize mDNS discovery
     discovery = ServerDiscovery(port=5000)
-    
+
     try:
         discovery.register()
         # Run the server using SocketIO

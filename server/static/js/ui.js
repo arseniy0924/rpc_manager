@@ -92,7 +92,8 @@ function handleUpdateClick(nodeId) {
     }
 
     const selectedData = JSON.parse(select.value);
-    sendUpdateCommand(nodeId, selectedData.url, selectedData.version_tag);
+    // ВАЖНО: передаем только 2 аргумента! Весь объект selectedData идет целиком.
+    sendUpdateCommand(nodeId, selectedData);
 }
 
 function handleStartRpcClick(nodeId) {
@@ -214,7 +215,14 @@ export function populateSelect(nodeId, installedVersions = []) {
             const versionTag = `${release.tag_name}_${backendKey}`;
 
             const option = document.createElement('option');
-            option.value = JSON.stringify({ url: backend.url, version_tag: versionTag });
+            // ВАЖНО: используем правильные переменные: backend и versionTag
+            const valueObj = {
+                url: backend.url,
+                filename: backend.filename,
+                version_tag: versionTag,
+                extra_assets: backend.extra_assets || []
+            };
+            option.value = JSON.stringify(valueObj);
 
             let text = `Llama ${release.tag_name} (${backendKey})`;
             if (installedVersions.includes(versionTag)) {

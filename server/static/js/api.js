@@ -230,18 +230,20 @@ export async function sendCommand(nodeId, commandData) {
     }
 }
 
-export async function sendUpdateCommand(nodeId, url, versionTag) {
+export async function sendUpdateCommand(nodeId, versionData) {
     const command = {
         type: "UPDATE_BINARY",
-        url: url,
-        version_tag: versionTag
+        url: versionData.url,
+        filename: versionData.filename,
+        version_tag: versionData.version_tag,
+        extra_assets: versionData.extra_assets || [] // <-- Без этой строки DLL не улетят
     };
 
-    // Send command to agent
     await sendCommand(nodeId, command);
-
-    // Save preference
-    await saveClientConfig(nodeId, versionTag);
+    // Если у тебя тут есть saveClientConfig, передавай туда versionData.version_tag
+    if (typeof saveClientConfig === 'function') {
+        await saveClientConfig(nodeId, versionData.version_tag);
+    }
 }
 
 export async function startRpc(nodeId, versionTag, port) {

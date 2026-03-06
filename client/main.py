@@ -36,54 +36,53 @@ def update_task_status(msg: str):
     """Callback to update the global agent status message."""
     AGENT_STATE["message"] = msg
 
+
 def handle_commands(commands: List[Dict[str, Any]]):
     """
     Parses and executes commands received from the server.
     """
     for cmd in commands:
         cmd_type = cmd.get("type")
-        
+
         if cmd_type == "UPDATE_BINARY":
             url = cmd.get("url")
             version_tag = cmd.get("version_tag")
-            
+
             if url and version_tag:
                 logger.info(f"Received update command for version: {version_tag}")
-                
+
                 def update_worker():
                     AGENT_STATE["status"] = "UPDATING"
                     AGENT_STATE["message"] = f"Starting update for {version_tag}..."
-                    
+
                     try:
+                        # ВАЖНО: передаем весь объект cmd как version_data
                         result = download_and_extract(
-                            url=url, 
-                            version_tag=version_tag, 
+                            version_data=cmd,
+                            version_tag=version_tag,
                             progress_callback=update_task_status
                         )
                         if result:
                             AGENT_STATE["message"] = f"Update successful. Installed at {result}"
-                            # Here we might want to restart the llama server if it was running
                         else:
                             AGENT_STATE["message"] = "Update failed. Check logs."
                     except Exception as e:
                         logger.error(f"Update worker failed: {e}")
                         AGENT_STATE["message"] = f"Update error: {e}"
                     finally:
-                        # Give some time for the last message to be sent via heartbeat before resetting to IDLE
-                        time.sleep(5) 
+                        time.sleep(5)
                         AGENT_STATE["status"] = "IDLE"
                         AGENT_STATE["message"] = ""
 
-                # Start update in a separate thread so we don't block heartbeats
                 thread = threading.Thread(target=update_worker, daemon=True)
                 thread.start()
             else:
                 logger.warning("Invalid UPDATE_BINARY command received.")
-        
+
         elif cmd_type == "START_RPC":
             version_tag = cmd.get("version_tag")
             port = cmd.get("port", 50052)
-            
+
             if version_tag:
                 logger.info(f"Starting RPC server for version {version_tag} on port {port}")
                 success = runner.start(version_tag=version_tag, port=port)
@@ -93,7 +92,7 @@ def handle_commands(commands: List[Dict[str, Any]]):
                     AGENT_STATE["message"] = "Failed to start RPC server"
             else:
                 logger.warning("START_RPC command missing version_tag")
-                
+
         elif cmd_type == "STOP_RPC":
             logger.info("Stopping RPC server")
             runner.stop()

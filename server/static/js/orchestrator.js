@@ -174,7 +174,10 @@ export function populateServerSelect() {
     const select = document.getElementById('main-version-select');
     if (!select) return;
 
-    if (Object.keys(state.availableReleases).length === 0) return;
+    if (Object.keys(state.availableReleases).length === 0) {
+        select.innerHTML = '<option disabled>No versions available</option>';
+        return;
+    }
 
     const currentSelection = select.value;
     select.innerHTML = '';
@@ -186,7 +189,15 @@ export function populateServerSelect() {
             const versionTag = `${release.tag_name}_${backendKey}`;
 
             const option = document.createElement('option');
-            option.value = JSON.stringify({ url: backend.url, version_tag: versionTag });
+
+            // ВАЖНО: Упаковываем ВСЕ данные, включая DLL (extra_assets)
+            const valueObj = {
+                url: backend.url,
+                filename: backend.filename,
+                version_tag: versionTag,
+                extra_assets: backend.extra_assets || []
+            };
+            option.value = JSON.stringify(valueObj);
 
             let text = `Llama ${release.tag_name} (${backendKey})`;
             if (state.serverInstalledVersions.includes(versionTag)) {
@@ -199,20 +210,17 @@ export function populateServerSelect() {
 
     if (currentSelection && select.querySelector(`option[value='${currentSelection}']`)) {
         select.value = currentSelection;
-    } else if (state.savedOrchestratorVersion) {
+    } else if (state.serverConfig && state.serverConfig.orchestrator_version) {
+        const savedTag = state.serverConfig.orchestrator_version;
         for (const option of select.options) {
             try {
                 const val = JSON.parse(option.value);
-                if (val.version_tag === state.savedOrchestratorVersion) {
+                if (val.version_tag === savedTag) {
                     select.value = option.value;
                     break;
                 }
             } catch (e) {}
         }
-    }
-
-    if (!select.value && select.options.length > 0) {
-        select.selectedIndex = 0;
     }
 }
 
@@ -225,18 +233,85 @@ export async function installServerVersion() {
 
     const selectedData = JSON.parse(select.value);
 
-    const success = await updateServerBinary(selectedData.url, selectedData.version_tag);
-    if (success) {
-        console.log("Server update started");
-        await saveOrchestratorConfig(selectedData.version_tag);
+    const logDiv = document.getElementById('server-download-log');
+    const logText = document.getElementById('server-download-text');
+    logDiv.classList.remove('hidden');
+    logText.classList.remove('text-red-500');
+    logText.textContent = "Starting update request...";
 
-        // Save Port as well
-        const portInput = document.getElementById('orchestrator-port-input');
-        const port = parseInt(portInput.value);
-        if (port) await saveOrchestratorPort(port);
-    } else {
-        alert("Failed to start server update.");
+    try {
+        // 1. Отправляем запрос на сервер со всеми данными (включая DLL)
+        const response = await fetch('/api/server/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(selectedData)
+        });
+
+        if (response.ok) {
+            logText.textContent = "Download started on server. Connecting to logs...";
+
+            // 2. Запускаем опрос статуса загрузки
+            pollServerUpdateStatus();
+
+            // 3. Сохраняем настройки (оборачиваем в try/catch, чтобы интерфейс не ломался при ошибке)
+            try {
+                const { saveOrchestratorConfig, saveOrchestratorPort } = await import('./api.js');
+                await saveOrchestratorConfig(selectedData.version_tag);
+
+                const portInput = document.getElementById('orchestrator-port-input');
+                if (portInput && portInput.value) {
+                    await saveOrchestratorPort(parseInt(portInput.value));
+                }
+            } catch (configErr) {
+                console.warn("Could not save config, but download continues:", configErr);
+            }
+
+        } else {
+            const errData = await response.json();
+            logText.textContent = "Failed to start update: " + (errData.error || "Unknown error");
+            logText.classList.add("text-red-500");
+        }
+    } catch (error) {
+        console.error("Error starting server update:", error);
+        logText.textContent = "JS Error: " + error.message; // Теперь покажет реальную ошибку, а не фейковую сеть
+        logText.classList.add("text-red-500");
     }
+}
+
+// Новая функция для красивого вывода прогресса в консоль интерфейса
+let serverUpdateInterval = null;
+function pollServerUpdateStatus() { // Убедись, что тут стоит export (если потребуется)
+    if (serverUpdateInterval) clearInterval(serverUpdateInterval);
+
+    const logText = document.getElementById('server-download-text');
+
+    serverUpdateInterval = setInterval(async () => {
+        try {
+            const response = await fetch('/api/server/status');
+            const data = await response.json();
+
+            if (data.message) {
+                logText.textContent = data.message;
+            }
+
+            // Останавливаем таймер, когда загрузка завершена
+            if (data.status === "IDLE") {
+                clearInterval(serverUpdateInterval);
+                if (data.message === "") {
+                    logText.textContent = "Update process completed.";
+                }
+
+                // --- ДОБАВЛЕНО: АВТО-ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---
+                // Запрашиваем с сервера новый список установленных версий
+                // и заставляем выпадающий список перерисоваться (появится галочка)
+                await fetchServerVersions();
+                populateServerSelect();
+                // ---------------------------------------------
+            }
+        } catch (err) {
+            console.error("Error polling server status:", err);
+        }
+    }, 500);
 }
 
 export async function startOrchestrator() {

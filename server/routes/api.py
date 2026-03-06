@@ -377,22 +377,29 @@ def get_server_versions():
     """
     return jsonify({"installed": get_server_installed_versions()}), 200
 
+
 @api_bp.route('/server/update', methods=['POST'])
 def update_server_binary():
     """
     Starts a background task to download and install a server binary.
+    Now passes the full version data object to support multiple assets (CUDA DLLs).
     """
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
-        
-    url = data.get('url')
+
+    # Извлекаем версию для логирования и проверки
     version_tag = data.get('version_tag')
-    
+    url = data.get('url')  # Основной бинарник
+
     if not url or not version_tag:
         return jsonify({"error": "Missing url or version_tag"}), 400
-        
-    start_server_update(url, version_tag)
+
+    # Передаем ВЕСЬ словарь данных (data) в загрузчик
+    # Теперь start_server_update сможет прочитать data['extra_assets']
+    start_server_update(data, version_tag)
+
+    logger.info(f"Started full update for version {version_tag} (main + dependencies)")
     return jsonify({"status": "started"}), 200
 
 @api_bp.route('/server/status', methods=['GET'])

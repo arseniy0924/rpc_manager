@@ -1,0 +1,15 @@
+# --- Server Dependencies ---
+Flask==3.0.0
+Flask-SocketIO==5.3.6
+Flask-SQLAlchemy==3.1.1
+eventlet==0.33.3  # Required for SocketIO async mode
+zeroconf==0.131.0 # For mDNS service discovery (Server side)
+requests==2.31.0  # For GitHub API calls
+
+# --- Client Dependencies ---
+psutil==5.9.6     # System metrics (CPU, RAM)
+pynvml==11.5.0    # NVIDIA GPU metrics
+zeroconf==0.131.0 # For mDNS service discovery (Client side)
+requests==2.31.0  # For HTTP communication with Server
+pyinstaller==6.3.0 # For building the .exe
+wmi==1.5.1        # Windows Management Instrumentation (optional, for extra hardware info)

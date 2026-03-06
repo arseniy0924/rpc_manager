@@ -2,86 +2,420 @@
 
 # 🚀 RPC Manager for llama.cpp Cluster
 
-**The Ultimate Web UI to Orchestrate, Manage, and Auto-Deploy AI Clusters**
+### Powerful Web UI for managing distributed **llama.cpp RPC GPU clusters**
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.0.0-black?logo=flask)](https://flask.palletsprojects.com/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Releases](https://img.shields.io/github/v/release/ТВОЙ_НИК/rpc_manager?include_prereleases&sort=semver)](https://github.com/ТВОЙ_НИК/rpc_manager/releases)
+Run **massive LLM models** across multiple machines by pooling VRAM over your local network.
+
+<p align="center">
+
+<a href="https://www.python.org/">
+<img src="https://img.shields.io/badge/python-3.12-blue.svg">
+</a>
+
+<a href="https://flask.palletsprojects.com/">
+<img src="https://img.shields.io/badge/Flask-3.0-black?logo=flask">
+</a>
+
+<a href="https://tailwindcss.com/">
+<img src="https://img.shields.io/badge/TailwindCSS-38B2AC?logo=tailwind-css&logoColor=white">
+</a>
+
+<a href="LICENSE">
+<img src="https://img.shields.io/badge/license-MIT-yellow">
+</a>
+
+<a href="https://github.com/arseniy0924/rpc_manager/stargazers">
+<img src="https://img.shields.io/github/stars/arseniy0924/rpc_manager?style=social">
+</a>
+
+<a href="https://github.com/arseniy0924/rpc_manager/releases">
+<img src="https://img.shields.io/github/v/release/arseniy0924/rpc_manager?include_prereleases&sort=semver">
+</a>
+
+</p>
+
+<p align="center">
+
+<a href="#overview">Overview</a> • <a href="#features">Features</a> • <a href="#architecture">Architecture</a> • <a href="#quick-start">Quick Start</a> • <a href="#dashboard">Dashboard</a> • <a href="#building">Build</a> • <a href="#tech-stack">Tech Stack</a>
+
+</p>
 
 </div>
 
-## 📖 Overview
+---
 
-**RPC Manager** is a powerful, zero-configuration control panel designed to manage a distributed cluster of `llama.cpp` RPC nodes. It allows you to pool the VRAM of multiple machines across your local network to run massive Large Language Models (LLMs) that wouldn't fit on a single GPU.
+# 📖 Overview
 
-With a beautiful dark-mode dashboard, auto-discovery via mDNS, and automated binary updates, building a personal AI supercomputer has never been easier.
+**RPC Manager** is a lightweight orchestration platform designed to manage distributed **llama.cpp RPC nodes**.
 
-![Dashboard Screenshot](link_to_your_main_screenshot_here.png)
-*(Drop a screenshot of your beautiful dashboard here)*
+It allows multiple machines to combine their **GPU VRAM and compute power**, enabling you to run **large language models that would normally exceed a single GPU's capacity**.
+
+The system automatically discovers nodes, deploys binaries, monitors hardware, and launches cluster inference — all from a clean web interface.
+
+This turns your local machines into a **personal AI compute cluster**.
 
 ---
 
-## ✨ Key Features
+# ✨ Features
 
-* 🎯 **Zero-Config Discovery (mDNS)**: Agents automatically find the Orchestrator on the local network. No need to hardcode IP addresses.
-* 📦 **Auto-Downloader & Updater**: Installs `llama.cpp` binaries directly from GitHub releases to any node in one click. **Fully supports downloading CUDA dependencies (DLLs)**.
-* 📊 **Live Telemetry**: Real-time monitoring of CPU, System RAM, GPU Temperature, and VRAM usage for every connected node.
-* 🧠 **Smart Cluster Start**: Toggle specific nodes on or off via the UI. The Orchestrator automatically handles launching the RPC servers and passing the correct endpoint strings.
-* 💾 **Model & Preset Management**: Scan your local directories for `.gguf` models, save launch parameters (Context, GPU Layers, Flash Attention, etc.) as presets, and switch between them instantly.
-* ⚡ **Portable "One-Click" Deploy**: Fully compiled into standalone `.exe` files for both Server and Agent. No Python installation required on client machines!
+### ⚡ Zero-Config Cluster Discovery
 
----
+Uses **mDNS / Zeroconf** to automatically discover nodes on the local network.
 
-## 🏗️ Architecture
-
-The system consists of two lightweight, compiled applications:
-
-1.  **RPC Server (Orchestrator)**: The central brain. Runs the Flask web interface, manages cluster state, and starts the primary `llama.cpp` instance that connects to all RPC nodes.
-2.  **RPC Agent (Client)**: Runs on your worker machines (the ones with extra GPUs). It silently runs in the background, reports hardware telemetry, and listens for commands to download binaries or start/stop the RPC server.
+No IP configuration required.
 
 ---
 
-## 🚀 Quick Start (Using Pre-compiled Binaries)
+### 📦 Automatic llama.cpp Deployment
 
-The easiest way to get started is using our standalone `.exe` releases for Windows.
+Download and deploy `llama.cpp` builds directly from **GitHub releases**.
 
-### 1. Set up the Orchestrator (Main PC)
-1. Download `RPC_Server.exe` from the [Releases page](../../releases).
-2. Run `RPC_Server.exe`.
-3. Open your browser and go to `http://localhost:5000`.
+Supports:
 
-### 2. Set up the Nodes (Worker PCs)
-1. Download `RPC_Agent.exe` to any PC on the same local network.
-2. Run `RPC_Agent.exe`.
-3. The agent will automatically find the Orchestrator and appear in your web dashboard!
-
-### 3. Deploy and Run
-1. In the Web UI, select the `llama.cpp` version you want to install and click **Apply** on your nodes.
-2. Set your **Models Directory** and click **Scan**.
-3. Select a model, tweak your launch parameters (or use a Preset), and click **Start Cluster**.
+* CUDA builds
+* dependency downloads (DLLs)
+* remote installation on nodes
 
 ---
 
-## 🛠️ Building from Source
+### 📊 Real-Time Hardware Telemetry
 
-If you want to modify the code or build the project yourself, follow these steps:
+Monitor all nodes in real time:
 
-### Prerequisites
-* Python 3.9+
-* NVIDIA GPU (for hardware telemetry via `pynvml`)
+• CPU usage
+• system RAM
+• GPU temperature
+• GPU VRAM usage
 
-### Installation
+Powered by `psutil` and `pynvml`.
 
-```bash
-# 1. Clone the repository
-git clone [https://github.com/YOUR_USERNAME/rpc_manager.git](https://github.com/YOUR_USERNAME/rpc_manager.git)
-cd rpc_manager
+---
 
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/Scripts/activate  # On Windows: .venv\Scripts\activate
+### 🧠 Smart Cluster Launch
 
-# 3. Install dependencies
-pip install -r requirements.txt
+Enable or disable nodes in the UI.
+
+The orchestrator automatically builds the correct **RPC endpoint configuration** and launches the cluster.
+
+---
+
+### 💾 Model & Preset Management
+
+Quickly manage your models:
+
+* scan directories for `.gguf`
+* store launch presets
+* switch models instantly
+
+---
+
+### 🚀 Portable Deployment
+
+Both components can be compiled into **standalone executables**.
+
+✔ No Python installation required
+✔ Easy deployment across machines
+
+---
+
+# 🖼 Dashboard
+
+Below is the main control panel of **RPC Manager**.
+
+It provides full control over your distributed `llama.cpp` cluster:
+
+* monitor node hardware in real time
+* deploy binaries
+* manage models
+* configure launch parameters
+* control cluster execution
+
+<p align="center">
+
+<img src="docs/dashboard.png" width="1000">
+
+</p>
+
+---
+
+## What you see in the dashboard
+
+### 🖥 Cluster Nodes
+
+Each connected node displays:
+
+* CPU usage
+* system RAM usage
+* GPU model
+* GPU VRAM usage
+* GPU temperature
+* live usage graphs
+* RPC server status
+
+You can also:
+
+* deploy `llama.cpp` builds
+* start / stop RPC servers
+* manage individual nodes
+
+---
+
+### ⚙ Orchestrator Settings
+
+Central configuration panel where you can:
+
+* choose `.gguf` models
+* scan model directories
+* configure context size
+* configure GPU layers
+* enable Flash Attention
+* configure KV cache types
+* save reusable presets
+
+---
+
+### 📟 Terminal & Controls
+
+A live terminal showing the `llama.cpp` runtime logs.
+
+From here you can:
+
+* monitor model loading
+* debug RPC connections
+* see layer distribution across GPUs
+* start or stop the entire cluster
+
+
+# 🏗 Architecture
+
+The system consists of two applications.
+
+```
+                +---------------------+
+                |   RPC Server        |
+                |   (Orchestrator)    |
+                |                     |
+                |  Flask Web UI      |
+                |  Cluster Control   |
+                +----------+---------+
+                           |
+                           |
+                     RPC / WebSocket
+                           |
+        +------------------+------------------+
+        |                  |                  |
++---------------+   +---------------+   +---------------+
+| RPC Agent     |   | RPC Agent     |   | RPC Agent     |
+| Worker Node   |   | Worker Node   |   | Worker Node   |
+| GPU Machine   |   | GPU Machine   |   | GPU Machine   |
++---------------+   +---------------+   +---------------+
+```
+
+---
+
+## RPC Server (Orchestrator)
+
+Runs on the **main machine**.
+
+Responsibilities:
+
+* cluster orchestration
+* Web UI
+* launching llama.cpp
+* node management
+* model selection
+
+---
+
+## RPC Agent (Client)
+
+Runs on **worker machines**.
+
+Responsibilities:
+
+* telemetry reporting
+* downloading binaries
+* running RPC server
+* responding to orchestration commands
+
+---
+
+# 🚀 Quick Start
+
+The easiest way to get started is using **precompiled binaries**.
+
+---
+
+## 1️⃣ Setup the Orchestrator
+
+Download:
+
+```
+RPC_Server.exe
+```
+
+from
+
+```
+[GitHub Releases](https://github.com/arseniy0924/rpc_manager/releases)
+```
+
+Run it:
+
+```
+RPC_Server.exe
+```
+
+Open your browser:
+
+```
+http://localhost:5000
+```
+
+---
+
+## 2️⃣ Setup Worker Nodes
+
+On every worker PC:
+
+Download:
+
+```
+RPC_Agent.exe
+```
+
+Run it.
+
+The node will automatically appear in the dashboard.
+
+---
+
+## 3️⃣ Deploy llama.cpp
+
+In the Web UI:
+
+1. Select a `llama.cpp` build
+2. Click **Apply**
+3. Set your **models directory**
+4. Click **Scan**
+5. Choose a model
+6. Press **Start Cluster**
+
+---
+
+# 🧪 Development Mode
+
+Run directly from Python.
+
+---
+
+## Start Server
+
+```
+python server/app.py
+```
+
+---
+
+## Start Agent
+
+```
+python client/main.py
+```
+
+---
+
+# 🏗 Building Executables
+
+The project uses **PyInstaller**.
+
+---
+
+## Build Server
+
+```
+pyinstaller --clean --noconfirm --onefile --console --name "RPC_Server" \
+--paths . \
+--hidden-import "server" \
+--collect-all "server" \
+--collect-all "zeroconf" \
+--collect-all "engineio" \
+--collect-all "socketio" \
+--collect-data "certifi" \
+--add-data "server/templates;server/templates" \
+--add-data "server/static;server/static" \
+server/app.py
+```
+
+---
+
+## Build Agent
+
+```
+pyinstaller --noconfirm --onefile --console --name "RPC_Agent" \
+--collect-all "zeroconf" \
+client/main.py
+```
+
+---
+
+# 💻 Tech Stack
+
+### Backend
+
+* Python
+* Flask
+* Flask-SocketIO
+
+### Frontend
+
+* HTML5
+* Vanilla JavaScript
+* TailwindCSS
+* Chart.js
+
+### Networking
+
+* Zeroconf (mDNS)
+* WebSockets
+
+### Hardware Monitoring
+
+* psutil
+* pynvml
+
+### Packaging
+
+* PyInstaller
+
+---
+
+# 🤝 Contributing
+
+Contributions are welcome.
+
+If you want to improve the project:
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+You can also open an **issue** for bugs or feature requests.
+
+---
+
+# 📝 License
+
+This project is licensed under the **MIT License**.
+
+See the `LICENSE` file for details.
+
+---
+
+# ⭐ Support the Project
+
+If you find this project useful:
+
+⭐ Star the repository
+🐛 Report issues
+💡 Suggest improvements

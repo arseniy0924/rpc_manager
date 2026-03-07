@@ -36,7 +36,13 @@ export function updateNodeCard(data) {
     }
 
     updateCardContent(card, data);
-    updateCardChart(nodeId, data);
+    
+    // Extract GPU names for chart legend
+    const gpuNames = (data.resources && data.resources.gpus) 
+        ? data.resources.gpus.map(gpu => gpu.name || `GPU ${gpu.index}`) 
+        : [];
+    
+    updateCardChart(nodeId, data, gpuNames);
 }
 
 function createNodeCard(data) {
@@ -105,10 +111,16 @@ function handleStartRpcClick(nodeId) {
         return;
     }
 
+    // --- СБОРКА ВЫБРАННЫХ GPU ДЛЯ ЭТОЙ НОДЫ ---
+    const selectedGpus = Array.from(document.querySelectorAll(`#node-${nodeId} .gpu-toggle:checked`))
+        .map(checkbox => parseInt(checkbox.dataset.gpuIndex, 10));
+    console.log(`Node ${nodeId}: Selected GPUs:`, selectedGpus);
+    // -----------------------------------------
+
     const versionData = JSON.parse(select.value);
     const port = parseInt(portInput.value) || 50052;
 
-    startRpc(nodeId, versionData.version_tag, port);
+    startRpc(nodeId, versionData.version_tag, port, selectedGpus);
 }
 
 function handleStopRpcClick(nodeId) {
@@ -161,17 +173,47 @@ export function updateCardContent(card, data) {
     const ramTotal = (res.ram_total_gb || 0).toFixed(1);
     card.querySelector('.node-ram-val').textContent = `${ramUsed}/${ramTotal} GB`;
 
-    // GPU
-    if (res.gpus && res.gpus.length > 0) {
-        const gpu = res.gpus[0];
-        card.querySelector('.node-gpu-name').textContent = gpu.name;
-        card.querySelector('.node-gpu-temp').textContent = gpu.temp_c + '°C';
+    // GPU - теперь поддерживаем массив карт
+    const gpuContainer = card.querySelector('.gpu-list');
 
-        const vramUsed = (gpu.vram_used_mb / 1024).toFixed(1);
-        const vramTotal = (gpu.vram_total_mb / 1024).toFixed(1);
-        card.querySelector('.node-vram-val').textContent = `${vramUsed}/${vramTotal} GB`;
+    // Сохраняем состояние чекбоксов перед очисткой
+    const gpuToggleStates = {};
+    const existingToggles = card.querySelectorAll('.gpu-toggle');
+    existingToggles.forEach(toggle => {
+        const gpuIndex = toggle.dataset.gpuIndex;
+        if (gpuIndex !== undefined) {
+            gpuToggleStates[gpuIndex] = toggle.checked;
+        }
+    });
+
+    gpuContainer.innerHTML = '';
+
+    if (res.gpus && res.gpus.length > 0) {
+        res.gpus.forEach(gpu => {
+            const vramUsed = (gpu.vram_used_gb || 0).toFixed(1);
+            const vramTotal = (gpu.vram_total_gb || 0).toFixed(1);
+            const temp = gpu.temp || gpu.temp_c || 0;
+
+            // Проверяем сохраненное состояние, по умолчанию true
+            const isChecked = gpuToggleStates[gpu.index] !== undefined ? gpuToggleStates[gpu.index] : true;
+            const checkedAttr = isChecked ? 'checked' : '';
+
+            const gpuHtml = `
+                <div class="gpu-item mb-2">
+                    <div class="flex items-center justify-between">
+                        <span class="node-gpu-name font-semibold text-sm">${gpu.name}</span>
+                        <input type="checkbox" class="gpu-toggle" data-gpu-index="${gpu.index}" ${checkedAttr}>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span class="node-vram-val">${vramUsed}/${vramTotal} GB</span>
+                        <span class="node-gpu-temp">${temp}°C</span>
+                    </div>
+                </div>
+            `;
+            gpuContainer.innerHTML += gpuHtml;
+        });
     } else {
-        card.querySelector('.node-gpu-name').textContent = "No GPU";
+        gpuContainer.innerHTML = '<div class="text-gray-400 text-sm">No GPU</div>';
     }
 
     // RPC Status

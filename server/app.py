@@ -12,6 +12,10 @@ import requests
 import logging
 import os
 import sys
+import threading
+import time
+import psutil
+import pynvml
 from flask import Flask
 from server.extensions import socketio
 from server.routes.web import web_bp
@@ -27,14 +31,80 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 # -----------------------------------------------------------
 
-# --- Функция для поиска папок после сборки в EXE ---
+# --- Функция для поиска папок после сборки в EXE и в PyCharm ---
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     if hasattr(sys, '_MEIPASS'):
         # PyInstaller распаковывает файлы во временную папку _MEIPASS
         return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+
+    # Бронебойный путь для разработки (отталкиваемся от самого файла app.py)
+    # __file__ указывает на .../rpc_manager/server/app.py
+    current_dir = os.path.dirname(os.path.abspath(__file__)) # Это папка server
+    project_root = os.path.dirname(current_dir)              # Это папка rpc_manager
+
+    return os.path.join(project_root, relative_path)
 # ---------------------------------------------------
+
+def get_server_telemetry():
+    """
+    Собирает телеметрию ресурсов основного сервера.
+    """
+    try:
+        # CPU usage
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        # RAM usage
+        memory = psutil.virtual_memory()
+        ram_used_gb = memory.used / (1024**3)
+        ram_total_gb = memory.total / (1024**3)
+        
+        # GPU info (если доступна)
+        gpu_info = None
+        try:
+            pynvml.nvmlInit()
+            device_count = pynvml.nvmlDeviceGetCount()
+            if device_count > 0:
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                gpu_name = pynvml.nvmlDeviceGetName(handle)
+                gpu_temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                gpu_util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+                gpu_memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                gpu_used_gb = gpu_memory.used / (1024**3)
+                gpu_total_gb = gpu_memory.total / (1024**3)
+                
+                gpu_info = {
+                    'name': gpu_name,
+                    'temp': gpu_temp,
+                    'util': gpu_util,
+                    'used_gb': round(gpu_used_gb, 2),
+                    'total_gb': round(gpu_total_gb, 2)
+                }
+        except Exception as e:
+            logger.warning(f"GPU telemetry error: {e}")
+        
+        return {
+            'cpu_percent': round(cpu_percent, 1),
+            'ram_used': round(ram_used_gb, 2),
+            'ram_total': round(ram_total_gb, 2),
+            'gpu': gpu_info
+        }
+    except Exception as e:
+        logger.error(f"Error collecting server telemetry: {e}")
+        return None
+
+def server_telemetry_worker():
+    """
+    Фоновая задача для отправки телеметрии сервера каждые 3 секунды.
+    """
+    while True:
+        try:
+            data = get_server_telemetry()
+            if data:
+                socketio.emit('server_telemetry', data)
+        except Exception as e:
+            logger.error(f"Error in telemetry worker: {e}")
+        time.sleep(3)
 
 def create_app():
     """
@@ -68,6 +138,11 @@ if __name__ == '__main__':
 
     try:
         discovery.register()
+        
+        # Start telemetry worker in background thread
+        telemetry_thread = threading.Thread(target=server_telemetry_worker, daemon=True)
+        telemetry_thread.start()
+        
         # Run the server using SocketIO
         logger.info("Starting Flask-SocketIO server on 0.0.0.0:5000")
         socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)

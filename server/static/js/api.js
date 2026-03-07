@@ -246,11 +246,12 @@ export async function sendUpdateCommand(nodeId, versionData) {
     }
 }
 
-export async function startRpc(nodeId, versionTag, port) {
+export async function startRpc(nodeId, versionTag, port, selectedGpus = []) {
     const command = {
         type: "START_RPC",
         version_tag: versionTag,
-        port: port
+        port: port,
+        selected_gpus: selectedGpus  // <-- Добавлено: передаем массив выбранных GPU
     };
     return await sendCommand(nodeId, command);
 }

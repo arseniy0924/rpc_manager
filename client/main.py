@@ -79,18 +79,35 @@ def handle_commands(commands: List[Dict[str, Any]]):
             else:
                 logger.warning("Invalid UPDATE_BINARY command received.")
 
+
         elif cmd_type == "START_RPC":
+
             version_tag = cmd.get("version_tag")
+
             port = cmd.get("port", 50052)
 
+            # --- ВЫТАСКИВАЕМ МАССИВ С КАРТАМИ ---
+
+            selected_gpus = cmd.get("selected_gpus", [])
+
             if version_tag:
-                logger.info(f"Starting RPC server for version {version_tag} on port {port}")
-                success = runner.start(version_tag=version_tag, port=port)
+
+                logger.info(f"Starting RPC server for version {version_tag} on port {port} with GPUs: {selected_gpus}")
+
+                # --- ПЕРЕДАЕМ КАРТЫ В РУННЕР ---
+
+                success = runner.start(version_tag=version_tag, port=port, selected_gpus=selected_gpus)
+
                 if success:
+
                     AGENT_STATE["message"] = f"RPC Started ({version_tag}:{port})"
+
                 else:
+
                     AGENT_STATE["message"] = "Failed to start RPC server"
+
             else:
+
                 logger.warning("START_RPC command missing version_tag")
 
         elif cmd_type == "STOP_RPC":

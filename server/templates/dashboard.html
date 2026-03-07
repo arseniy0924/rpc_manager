@@ -40,8 +40,27 @@
             <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
             <h1 class="text-xl font-bold tracking-wide text-white">RPC <span class="text-blue-500">Manager</span></h1>
         </div>
-        <div class="text-sm text-gray-400">
-            Cluster Status: <span class="text-green-400 font-semibold">Active</span>
+        <div class="flex items-center gap-6">
+            <div id="server-resources-bar" class="flex items-center gap-4 text-xs text-gray-300">
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">CPU:</span>
+                    <div class="w-16 bg-gray-700 rounded-full h-1.5">
+                        <div id="server-cpu-bar" class="bg-blue-500 h-1.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <span id="server-cpu-text" class="font-mono">0%</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">RAM:</span>
+                    <span id="server-ram-text" class="font-mono">0/0 GB</span>
+                </div>
+                <div id="server-gpu-container" class="flex items-center gap-2 hidden">
+                    <span class="text-gray-400">GPU:</span>
+                    <span id="server-gpu-text" class="font-mono">0°C</span>
+                </div>
+            </div>
+            <div class="text-sm text-gray-400">
+                Cluster Status: <span class="text-green-400 font-semibold">Active</span>
+            </div>
         </div>
     </nav>
 
@@ -207,10 +226,7 @@
                         Copy Logs
                     </button>
                 </div>
-                <div class="bg-gray-800 rounded-lg p-4 shadow-lg flex flex-col h-[650px]"> <div id="orchestrator-status-indicator" class="mb-2 flex justify-between items-center">
-                        <span class="text-sm font-bold text-gray-400">Status:</span>
-                        <span id="orchestrator-status-text" class="text-gray-500 font-mono">Stopped</span>
-                    </div>
+                <div class="bg-gray-800 rounded-lg p-4 shadow-lg flex flex-col h-[650px]">
 
                     <div id="orchestrator-logs" class="bg-black text-green-400 font-mono text-xs p-3 rounded flex-grow overflow-y-auto whitespace-pre-wrap select-text border border-gray-700" style="display: block;">Waiting for server to start...</div>
 
@@ -252,9 +268,9 @@
                 <div class="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mb-4">
                     <div class="flex justify-between"><span class="text-gray-400">CPU Load:</span><span class="font-mono text-blue-400 node-cpu-val">0%</span></div>
                     <div class="flex justify-between"><span class="text-gray-400">RAM:</span><span class="font-mono text-purple-400 node-ram-val">0/0 GB</span></div>
-                    <div class="flex justify-between col-span-2 border-t border-gray-700 pt-2 mt-1"><span class="text-gray-400">GPU:</span><span class="font-mono text-green-400 node-gpu-name text-xs text-right truncate ml-2">N/A</span></div>
-                    <div class="flex justify-between col-span-2"><span class="text-gray-400">VRAM:</span><span class="font-mono text-green-400 node-vram-val">0/0 GB</span></div>
-                    <div class="flex justify-between col-span-2"><span class="text-gray-400">Temp:</span><span class="font-mono text-red-400 node-gpu-temp">0°C</span></div>
+
+                    <div class="gpu-list col-span-2 border-t border-gray-700 pt-2 mt-1 flex flex-col gap-1">
+                    </div>
                 </div>
                 <div class="relative h-32 w-full bg-gray-900/50 rounded-lg p-2 border border-gray-700/50 mb-4"><canvas class="node-chart"></canvas></div>
                 <div class="flex flex-col gap-2">

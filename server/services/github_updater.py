@@ -75,8 +75,15 @@ class LlamaGitHubFetcher:
             info = {"url": download_url, "size_mb": size_mb, "filename": asset.get('name'), "extra_assets": []}
 
             if 'cuda' in name:
-                key = 'cuda12' if 'cuda12' in name else 'cuda'
-                backends[key] = info
+                # Определяем версию CUDA по имени файла
+                # Поддерживаем форматы: cu12.2, cu12.1, cuda-12, cu13.0, cuda-13 и т.д.
+                if 'cu12' in name or '-cuda-12' in name or '-cu12.' in name:
+                    backends['cuda_12'] = info
+                elif 'cu13' in name or '-cuda-13' in name or '-cu13.' in name:
+                    backends['cuda_13'] = info
+                else:
+                    #Fallback для других форматов CUDA
+                    backends['cuda'] = info
             elif 'vulkan' in name:
                 backends['vulkan'] = info
             elif 'avx2' in name:
@@ -88,14 +95,23 @@ class LlamaGitHubFetcher:
         for asset in assets:
             name = asset.get('name', '').lower()
             if 'cudart' in name and 'win' in name:
-                # Добавляем рантайм CUDA к существующим cuda-бэкендам
-                for key in backends:
-                    if 'cuda' in key:
-                        backends[key]['extra_assets'].append({
-                            "url": asset.get('browser_download_url'),
-                            "size_mb": round(asset.get('size', 0) / (1024 * 1024), 2),
-                            "filename": asset.get('name')
-                        })
+                download_url = asset.get('browser_download_url')
+                size_mb = round(asset.get('size', 0) / (1024 * 1024), 2)
+                filename = asset.get('name')
+                
+                extra_asset = {
+                    "url": download_url,
+                    "size_mb": size_mb,
+                    "filename": filename
+                }
+
+                # Привязываем DLL к правильному CUDA бэкенду
+                if 'cu12' in name or '-cuda-12' in name or '-cu12.' in name:
+                    if 'cuda_12' in backends:
+                        backends['cuda_12']['extra_assets'].append(extra_asset)
+                elif 'cu13' in name or '-cuda-13' in name or '-cu13.' in name:
+                    if 'cuda_13' in backends:
+                        backends['cuda_13']['extra_assets'].append(extra_asset)
         return backends
 
     def get_available_versions(self) -> Dict[str, Any]:

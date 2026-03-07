@@ -42,7 +42,7 @@ def get_cpu_ram_metrics() -> Dict[str, float]:
 def get_gpu_metrics() -> List[Dict[str, Any]]:
     """
     Collects GPU metrics using pynvml if available.
-    Returns a list of dictionaries containing GPU details.
+    Returns a list of dictionaries containing GPU details for each GPU.
     Handles initialization and shutdown of NVML safely.
     """
     gpus = []
@@ -65,22 +65,22 @@ def get_gpu_metrics() -> List[Dict[str, Any]]:
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             
             try:
-                utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                load_percent = utilization.gpu
-            except pynvml.NVMLError:
-                load_percent = 0
-            
-            try:
                 temp_c = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
             except pynvml.NVMLError:
                 temp_c = 0
 
+            try:
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                load_percent = util.gpu
+            except pynvml.NVMLError:
+                load_percent = 0
+
             gpus.append({
                 "index": i,
                 "name": name,
-                "vram_total_mb": round(memory_info.total / (1024 ** 2), 2),
-                "vram_used_mb": round(memory_info.used / (1024 ** 2), 2),
-                "temp_c": temp_c,
+                "vram_used_gb": round(memory_info.used / (1024 ** 3), 2),
+                "vram_total_gb": round(memory_info.total / (1024 ** 3), 2),
+                "temp": temp_c,
                 "load_percent": load_percent
             })
             

@@ -98,6 +98,37 @@ socket.on('node_updated', (data) => {
     });
 });
 
+// --- Server Telemetry Handler ---
+socket.on('server_telemetry', (data) => {
+    updateServerHeader(data);
+});
+
+function updateServerHeader(data) {
+    // CPU
+    const cpuBar = document.getElementById('server-cpu-bar');
+    const cpuText = document.getElementById('server-cpu-text');
+    if (cpuBar && cpuText) {
+        cpuBar.style.width = `${data.cpu_percent}%`;
+        cpuText.textContent = `${data.cpu_percent}%`;
+    }
+
+    // RAM
+    const ramText = document.getElementById('server-ram-text');
+    if (ramText) {
+        ramText.textContent = `${data.ram_used}/${data.ram_total} GB`;
+    }
+
+    // GPU
+    const gpuContainer = document.getElementById('server-gpu-container');
+    const gpuText = document.getElementById('server-gpu-text');
+    if (data.gpu && gpuContainer && gpuText) {
+        gpuContainer.classList.remove('hidden');
+        gpuText.textContent = `${data.gpu.name} • ${data.gpu.temp}°C • ${data.gpu.used_gb}/${data.gpu.total_gb} GB`;
+    } else if (gpuContainer) {
+        gpuContainer.classList.add('hidden');
+    }
+}
+
 // --- ЭКСПОРТ ФУНКЦИЙ В ГЛОБАЛЬНУЮ ЗОНУ ДЛЯ HTML (Исправляет неработающие кнопки) ---
 window.saveConfigAndScan = saveConfigAndScan;
 window.installServerVersion = installServerVersion;

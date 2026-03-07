@@ -324,6 +324,12 @@ export async function startOrchestrator() {
         return;
     }
 
+    // --- СБОРКА ВЫБРАННЫХ GPU (из чекбоксов .gpu-toggle) ---
+    const selectedGpus = Array.from(document.querySelectorAll('.gpu-toggle:checked'))
+        .map(checkbox => parseInt(checkbox.dataset.gpuIndex, 10));
+    console.log('Selected GPUs:', selectedGpus);
+    // -------------------------------------------------------
+
     // --- SMART CLUSTER START LOGIC ---
     const activeToggles = document.querySelectorAll('.node-enable-toggle:checked');
     const activeNodes = Array.from(activeToggles).map(toggle => ({
@@ -346,11 +352,17 @@ export async function startOrchestrator() {
                 return Promise.resolve();
             }
 
+            // --- СБОРКА ВЫБРАННЫХ GPU ДЛЯ ЭТОЙ НОДЫ ---
+            const selectedGpus = Array.from(document.querySelectorAll(`#node-${node.nodeId} .gpu-toggle:checked`))
+                .map(checkbox => parseInt(checkbox.dataset.gpuIndex, 10));
+            console.log(`Node ${node.nodeId}: Selected GPUs:`, selectedGpus);
+            // -----------------------------------------
+
             const versionData = JSON.parse(select.value);
             const rpcPort = parseInt(nodePortInput.value) || 50052;
 
             rpcEndpoints.push(`${node.ip}:${rpcPort}`);
-            return startRpc(node.nodeId, versionData.version_tag, rpcPort);
+            return startRpc(node.nodeId, versionData.version_tag, rpcPort, selectedGpus);
         });
 
         await Promise.all(rpcStartPromises);
@@ -388,7 +400,8 @@ export async function startOrchestrator() {
                 model_path: modelSelect.value,
                 port: parseInt(portInput.value) || 8080,
                 rpc_endpoints: rpcEndpoints.join(','), // <-- Передаем строку IP:PORT
-                launch_params: launch_params
+                launch_params: launch_params,
+                selected_gpus: selectedGpus // <-- Добавляем массив выбранных GPU
             })
         });
 

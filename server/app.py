@@ -59,13 +59,13 @@ def get_server_telemetry():
         ram_used_gb = memory.used / (1024**3)
         ram_total_gb = memory.total / (1024**3)
         
-        # GPU info (если доступна)
-        gpu_info = None
+        # GPU info (если доступны)
+        gpus = []
         try:
             pynvml.nvmlInit()
             device_count = pynvml.nvmlDeviceGetCount()
-            if device_count > 0:
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
                 gpu_name = pynvml.nvmlDeviceGetName(handle)
                 gpu_temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
                 gpu_util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
@@ -73,13 +73,13 @@ def get_server_telemetry():
                 gpu_used_gb = gpu_memory.used / (1024**3)
                 gpu_total_gb = gpu_memory.total / (1024**3)
                 
-                gpu_info = {
+                gpus.append({
                     'name': gpu_name,
                     'temp': gpu_temp,
                     'util': gpu_util,
                     'used_gb': round(gpu_used_gb, 2),
                     'total_gb': round(gpu_total_gb, 2)
-                }
+                })
         except Exception as e:
             logger.warning(f"GPU telemetry error: {e}")
         
@@ -87,7 +87,7 @@ def get_server_telemetry():
             'cpu_percent': round(cpu_percent, 1),
             'ram_used': round(ram_used_gb, 2),
             'ram_total': round(ram_total_gb, 2),
-            'gpu': gpu_info
+            'gpus': gpus
         }
     except Exception as e:
         logger.error(f"Error collecting server telemetry: {e}")

@@ -121,9 +121,12 @@ function updateServerHeader(data) {
     // GPU
     const gpuContainer = document.getElementById('server-gpu-container');
     const gpuText = document.getElementById('server-gpu-text');
-    if (data.gpu && gpuContainer && gpuText) {
+    if (data.gpus && data.gpus.length > 0) {
         gpuContainer.classList.remove('hidden');
-        gpuText.textContent = `${data.gpu.name} • ${data.gpu.temp}°C • ${data.gpu.used_gb}/${data.gpu.total_gb} GB`;
+        const gpusHtml = data.gpus.map(g => 
+            `<span class="mr-3 whitespace-nowrap"><b>${g.name}</b>: ${g.temp}°C • ${g.used_gb}/${g.total_gb} GB</span>`
+        ).join('<span class="text-gray-500 mx-2">|</span>');
+        gpuText.innerHTML = gpusHtml;
     } else if (gpuContainer) {
         gpuContainer.classList.add('hidden');
     }

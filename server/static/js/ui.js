@@ -245,23 +245,30 @@ export async function populateSelect(nodeId, installedVersions = []) {
     const select = document.getElementById(`select-${nodeId}`);
     if (!select) return;
 
-    // Запоминаем текущий выбор пользователя, чтобы не сбросить его при обновлении интерфейса
-    const currentUserSelection = select.value ? JSON.parse(select.value).version_tag : null;
+    // 1. ЖЕЛЕЗОБЕТОННАЯ ЗАЩИТА: парсим только если это реально JSON (начинается с "{")
+    let currentUserSelection = null;
+    if (select.value && select.value.trim().startsWith('{')) {
+        try {
+            currentUserSelection = JSON.parse(select.value).version_tag;
+        } catch (e) {
+            console.warn("Ignored invalid JSON in select:", select.value);
+        }
+    }
+
+    const safeInstalled = Array.isArray(installedVersions) ? installedVersions : [];
 
     try {
-        // 1. Делаем независимые запросы: релизы с GitHub и конфиг конкретно для клиентов
         const [releasesData, configRes] = await Promise.all([
-            fetch('/api/releases').then(r => r.ok ? r.json() : {}),
-            fetch('/api/config/clients').then(r => r.ok ? r.json() : { client_configs: {} })
+            fetch('/api/releases').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+            fetch('/api/config/clients').then(r => r.ok ? r.json() : { client_configs: {} }).catch(() => ({ client_configs: {} }))
         ]);
 
         const savedConfig = configRes.client_configs?.[nodeId] || {};
-        const savedVersionTag = savedConfig.version_tag; // Версия, сохраненная в базе для этой ноды
+        const savedVersionTag = savedConfig.version_tag;
 
         const combinedVersions = [];
         const addedTags = new Set();
 
-        // 2. Сначала парсим актуальные GitHub релизы
         for (const releaseTag in releasesData) {
             const release = releasesData[releaseTag];
             for (const backendKey in release.backends) {
@@ -274,14 +281,13 @@ export async function populateSelect(nodeId, installedVersions = []) {
                     url: backend.url,
                     filename: backend.filename,
                     extra_assets: backend.extra_assets || [],
-                    is_installed: installedVersions.includes(versionTag) // Сверяем с тем, что есть на диске НОДЫ
+                    is_installed: safeInstalled.includes(versionTag)
                 });
                 addedTags.add(versionTag);
             }
         }
 
-        // 3. Добавляем локальные версии НОДЫ, если их уже удалили с GitHub
-        installedVersions.forEach(localTag => {
+        safeInstalled.forEach(localTag => {
             if (!addedTags.has(localTag)) {
                 combinedVersions.push({
                     version_tag: localTag,
@@ -295,7 +301,6 @@ export async function populateSelect(nodeId, installedVersions = []) {
             }
         });
 
-        // 4. Очищаем и перерисовываем <select>
         select.innerHTML = '<option value="" disabled>Select Version...</option>';
 
         combinedVersions.forEach(version => {
@@ -307,24 +312,14 @@ export async function populateSelect(nodeId, installedVersions = []) {
                 extra_assets: version.extra_assets
             });
 
-            let text = version.name;
-            if (version.is_installed) {
-                text = `✅ [INSTALLED] ${text}`;
-            }
-            option.textContent = text;
+            option.textContent = version.is_installed ? `✅ [INSTALLED] ${version.name}` : version.name;
             select.appendChild(option);
         });
 
-        // ==========================================
-        // 5. ЖЕЛЕЗОБЕТОННАЯ ЛОГИКА АВТОВЫБОРА
-        // ==========================================
-
-        // Приоритет выбора: 1. То, что уже выбрано в UI -> 2. То, что сохранено в бэкенде -> 3. Самая свежая установленная
         let targetVersionTag = currentUserSelection || savedVersionTag;
 
-        if (!targetVersionTag && installedVersions.length > 0) {
-            // Сортируем версии по номеру (например, b8232 > b8230)
-            const installedSorted = installedVersions
+        if (!targetVersionTag && safeInstalled.length > 0) {
+            const installedSorted = safeInstalled
                 .map(v => {
                     const match = v.match(/^b(\d+)/);
                     return { tag: v, num: match ? parseInt(match[1], 10) : 0 };
@@ -336,28 +331,24 @@ export async function populateSelect(nodeId, installedVersions = []) {
             }
         }
 
-        // Применяем финальный выбор
-        let found = false;
         if (targetVersionTag) {
             for (const option of select.options) {
-                if (!option.value) continue; // Пропускаем disabled option
+                // И здесь тоже проверяем, что option.value это валидный JSON
+                if (!option.value || !option.value.trim().startsWith('{')) continue;
                 try {
                     const val = JSON.parse(option.value);
                     if (val.version_tag === targetVersionTag) {
                         select.value = option.value;
-                        found = true;
                         break;
                     }
                 } catch (e) {}
             }
-        }
-
-        // Если ничего не подошло (например, нода пустая), выбираем первую строку после disabled
-        if (!found && select.options.length > 1) {
+        } else if (select.options.length > 1 && !select.value) {
             select.selectedIndex = 1;
         }
 
     } catch (error) {
-        console.error(`Error populating select for node ${nodeId}:`, error);
+        console.error(`CRITICAL: Error populating select for node ${nodeId}:`, error);
+        select.innerHTML = `<option disabled>Error loading versions</option>`;
     }
 }

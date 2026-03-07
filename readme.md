@@ -239,6 +239,17 @@ Responsibilities:
 * responding to orchestration commands
 
 ---
+# 📦 Installation
+
+Download the latest binaries from the releases page:
+
+https://github.com/arseniy0924/rpc_manager/releases
+
+No Python installation is required.
+
+Run the executables directly on your machines.
+
+---
 
 # 🚀 Quick Start
 

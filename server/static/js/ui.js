@@ -241,57 +241,123 @@ export function updateCardContent(card, data) {
     }
 }
 
-export function populateSelect(nodeId, installedVersions = []) {
+export async function populateSelect(nodeId, installedVersions = []) {
     const select = document.getElementById(`select-${nodeId}`);
     if (!select) return;
 
-    if (Object.keys(state.availableReleases).length === 0) return;
+    // Запоминаем текущий выбор пользователя, чтобы не сбросить его при обновлении интерфейса
+    const currentUserSelection = select.value ? JSON.parse(select.value).version_tag : null;
 
-    const currentSelection = select.value;
-    select.innerHTML = '';
+    try {
+        // 1. Делаем независимые запросы: релизы с GitHub и конфиг конкретно для клиентов
+        const [releasesData, configRes] = await Promise.all([
+            fetch('/api/releases').then(r => r.ok ? r.json() : {}),
+            fetch('/api/config/clients').then(r => r.ok ? r.json() : { client_configs: {} })
+        ]);
 
-    for (const releaseTag in state.availableReleases) {
-        const release = state.availableReleases[releaseTag];
-        for (const backendKey in release.backends) {
-            const backend = release.backends[backendKey];
-            const versionTag = `${release.tag_name}_${backendKey}`;
+        const savedConfig = configRes.client_configs?.[nodeId] || {};
+        const savedVersionTag = savedConfig.version_tag; // Версия, сохраненная в базе для этой ноды
 
+        const combinedVersions = [];
+        const addedTags = new Set();
+
+        // 2. Сначала парсим актуальные GitHub релизы
+        for (const releaseTag in releasesData) {
+            const release = releasesData[releaseTag];
+            for (const backendKey in release.backends) {
+                const backend = release.backends[backendKey];
+                const versionTag = `${release.tag_name}_${backendKey}`;
+
+                combinedVersions.push({
+                    version_tag: versionTag,
+                    name: `Llama ${release.tag_name} (${backendKey})`,
+                    url: backend.url,
+                    filename: backend.filename,
+                    extra_assets: backend.extra_assets || [],
+                    is_installed: installedVersions.includes(versionTag) // Сверяем с тем, что есть на диске НОДЫ
+                });
+                addedTags.add(versionTag);
+            }
+        }
+
+        // 3. Добавляем локальные версии НОДЫ, если их уже удалили с GitHub
+        installedVersions.forEach(localTag => {
+            if (!addedTags.has(localTag)) {
+                combinedVersions.push({
+                    version_tag: localTag,
+                    name: `Local: ${localTag}`,
+                    url: "",
+                    filename: "",
+                    extra_assets: [],
+                    is_installed: true
+                });
+                addedTags.add(localTag);
+            }
+        });
+
+        // 4. Очищаем и перерисовываем <select>
+        select.innerHTML = '<option value="" disabled>Select Version...</option>';
+
+        combinedVersions.forEach(version => {
             const option = document.createElement('option');
-            // ВАЖНО: используем правильные переменные: backend и versionTag
-            const valueObj = {
-                url: backend.url,
-                filename: backend.filename,
-                version_tag: versionTag,
-                extra_assets: backend.extra_assets || []
-            };
-            option.value = JSON.stringify(valueObj);
+            option.value = JSON.stringify({
+                url: version.url,
+                filename: version.filename,
+                version_tag: version.version_tag,
+                extra_assets: version.extra_assets
+            });
 
-            let text = `Llama ${release.tag_name} (${backendKey})`;
-            if (installedVersions.includes(versionTag)) {
-                text += ' ✅ (Installed)';
+            let text = version.name;
+            if (version.is_installed) {
+                text = `✅ [INSTALLED] ${text}`;
             }
             option.textContent = text;
             select.appendChild(option);
-        }
-    }
+        });
 
-    // Restore selection logic
-    if (currentSelection && select.querySelector(`option[value='${currentSelection}']`)) {
-        select.value = currentSelection;
-    } else if (state.savedClientConfigs[nodeId] && state.savedClientConfigs[nodeId].version_tag) {
-        const savedTag = state.savedClientConfigs[nodeId].version_tag;
-        for (const option of select.options) {
-            try {
-                const val = JSON.parse(option.value);
-                if (val.version_tag === savedTag) {
-                    select.value = option.value;
-                    break;
-                }
-            } catch (e) {}
-        }
-    }
+        // ==========================================
+        // 5. ЖЕЛЕЗОБЕТОННАЯ ЛОГИКА АВТОВЫБОРА
+        // ==========================================
 
-    if (!select.value && select.options.length > 0) {
-        select.selectedIndex = 0;
+        // Приоритет выбора: 1. То, что уже выбрано в UI -> 2. То, что сохранено в бэкенде -> 3. Самая свежая установленная
+        let targetVersionTag = currentUserSelection || savedVersionTag;
+
+        if (!targetVersionTag && installedVersions.length > 0) {
+            // Сортируем версии по номеру (например, b8232 > b8230)
+            const installedSorted = installedVersions
+                .map(v => {
+                    const match = v.match(/^b(\d+)/);
+                    return { tag: v, num: match ? parseInt(match[1], 10) : 0 };
+                })
+                .sort((a, b) => b.num - a.num);
+
+            if (installedSorted.length > 0) {
+                targetVersionTag = installedSorted[0].tag;
+            }
+        }
+
+        // Применяем финальный выбор
+        let found = false;
+        if (targetVersionTag) {
+            for (const option of select.options) {
+                if (!option.value) continue; // Пропускаем disabled option
+                try {
+                    const val = JSON.parse(option.value);
+                    if (val.version_tag === targetVersionTag) {
+                        select.value = option.value;
+                        found = true;
+                        break;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // Если ничего не подошло (например, нода пустая), выбираем первую строку после disabled
+        if (!found && select.options.length > 1) {
+            select.selectedIndex = 1;
+        }
+
+    } catch (error) {
+        console.error(`Error populating select for node ${nodeId}:`, error);
     }
 }

@@ -170,19 +170,32 @@ class MainOrchestrator:
             "srv init: server is listening"
         ]
         
+        current_line = ""
+        
         while self.process and self.process.poll() is None:
             try:
-                line = self.process.stdout.readline()
-                if not line:
+                char = self.process.stdout.read(1)
+                if not char:
                     break
                 
-                line = line.strip()
-                if line:
-                    self.logs.append(line)
-                    # Check for readiness indicators
-                    line_lower = line.lower()
-                    if any(phrase in line_lower for phrase in ready_phrases):
-                        self.state = "READY"
+                if char in ('\n', '\r'):
+                    if current_line:
+                        self.logs.append(current_line)
+                        # Check for readiness indicators
+                        line_lower = current_line.lower()
+                        if any(phrase in line_lower for phrase in ready_phrases):
+                            self.state = "READY"
+                        current_line = ""
+                else:
+                    current_line += char
+                    # If current line consists only of dots (progress bar), update the last log entry
+                    if current_line.strip() and all(c == '.' for c in current_line.strip()):
+                        if self.logs:
+                            # Update the last log entry
+                            self.logs[-1] = current_line
+                        else:
+                            # Add a new log entry if logs is empty
+                            self.logs.append(current_line)
             except Exception as e:
                 logger.error(f"Error reading orchestrator logs: {e}")
                 break

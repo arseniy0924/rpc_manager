@@ -95,7 +95,7 @@ export async function populateModelsSelect() {
     select.disabled = false;
 }
 
-export async function loadPresetsForModel(modelPath) {
+export async function loadPresetsForModel(modelPath, targetName = null) {
     if (!modelPath) return;
 
     const presetSelect = document.getElementById('preset-select');
@@ -115,7 +115,25 @@ export async function loadPresetsForModel(modelPath) {
     // Reset inputs to default
     applyPresetSettings("Default");
 
-    presetSelect.onchange = () => applyPresetSettings(presetSelect.value);
+    // Restore selection
+    if (targetName && presetSelect.querySelector(`option[value="${targetName}"]`)) {
+        presetSelect.value = targetName;
+        // Trigger change event to apply settings
+        presetSelect.dispatchEvent(new Event('change'));
+    } else {
+        // Try to restore from localStorage
+        const savedPreset = localStorage.getItem('lastSelectedPreset');
+        if (savedPreset && presetSelect.querySelector(`option[value="${savedPreset}"]`)) {
+            presetSelect.value = savedPreset;
+            presetSelect.dispatchEvent(new Event('change'));
+        }
+    }
+
+    presetSelect.onchange = () => {
+        // Save selection to localStorage
+        localStorage.setItem('lastSelectedPreset', presetSelect.value);
+        applyPresetSettings(presetSelect.value);
+    };
 }
 
 function applyPresetSettings(presetName) {
@@ -135,13 +153,14 @@ function applyPresetSettings(presetName) {
 
 export async function saveCurrentPreset() {
     const modelPath = document.getElementById('main-model-select').value;
-    const presetName = document.getElementById('new-preset-name').value;
+    const presetNameInput = document.getElementById('new-preset-name');
+    const targetName = presetNameInput.value;
 
     if (!modelPath) {
         alert("Please select a model first.");
         return;
     }
-    if (!presetName) {
+    if (!targetName) {
         alert("Please enter a preset name.");
         return;
     }
@@ -158,69 +177,111 @@ export async function saveCurrentPreset() {
         custom_args: document.getElementById('param-custom').value
     };
 
-    const success = await savePreset(modelPath, presetName, settings);
+    const success = await savePreset(modelPath, targetName, settings);
     if (success) {
         alert("Preset saved!");
-        // Refresh presets list
-        await loadPresetsForModel(modelPath);
-        // Select the new preset
-        document.getElementById('preset-select').value = presetName;
+        // Refresh presets list and restore selection
+        await loadPresetsForModel(modelPath, targetName);
     } else {
         alert("Failed to save preset.");
     }
 }
 
-export function populateServerSelect() {
+export async function populateServerSelect() {
     const select = document.getElementById('main-version-select');
     if (!select) return;
 
-    if (Object.keys(state.availableReleases).length === 0) {
-        select.innerHTML = '<option disabled>No versions available</option>';
-        return;
-    }
+    // 1. Параллельные запросы
+    const [releasesData, serverVersionsData] = await Promise.all([
+        fetch('/api/releases').then(r => r.ok ? r.json() : {}),
+        fetch('/api/server/versions').then(r => r.ok ? r.json() : { installed: [] })
+    ]);
 
-    const currentSelection = select.value;
-    select.innerHTML = '';
+    // 2. Объединение версий
+    const combinedVersions = [];
+    const serverInstalled = serverVersionsData.installed || [];
 
-    for (const releaseTag in state.availableReleases) {
-        const release = state.availableReleases[releaseTag];
+    // Сначала добавляем локальные версии, которых нет в GitHub
+    serverInstalled.forEach(localVersion => {
+        if (!releasesData[localVersion]) {
+            combinedVersions.push({
+                version_tag: localVersion,
+                name: `Local: ${localVersion}`,
+                is_installed: true
+            });
+        }
+    });
+
+    // Затем добавляем версии из GitHub
+    for (const releaseTag in releasesData) {
+        const release = releasesData[releaseTag];
         for (const backendKey in release.backends) {
             const backend = release.backends[backendKey];
             const versionTag = `${release.tag_name}_${backendKey}`;
-
-            const option = document.createElement('option');
-
-            // ВАЖНО: Упаковываем ВСЕ данные, включая DLL (extra_assets)
-            const valueObj = {
+            combinedVersions.push({
+                version_tag: versionTag,
+                name: `Llama ${release.tag_name} (${backendKey})`,
                 url: backend.url,
                 filename: backend.filename,
-                version_tag: versionTag,
                 extra_assets: backend.extra_assets || []
-            };
-            option.value = JSON.stringify(valueObj);
-
-            let text = `Llama ${release.tag_name} (${backendKey})`;
-            if (state.serverInstalledVersions.includes(versionTag)) {
-                text += ' ✅ (Installed)';
-            }
-            option.textContent = text;
-            select.appendChild(option);
+            });
         }
     }
 
-    if (currentSelection && select.querySelector(`option[value='${currentSelection}']`)) {
-        select.value = currentSelection;
-    } else if (state.serverConfig && state.serverConfig.orchestrator_version) {
-        const savedTag = state.serverConfig.orchestrator_version;
+    // 3. Генерация <option>
+    const currentSelection = select.value;
+    select.innerHTML = '';
+
+    combinedVersions.forEach(version => {
+        const option = document.createElement('option');
+        option.value = JSON.stringify({
+            url: version.url,
+            filename: version.filename,
+            version_tag: version.version_tag,
+            extra_assets: version.extra_assets || []
+        });
+
+        let text = version.name;
+        if (serverInstalled.includes(version.version_tag)) {
+            text += ' ✅ (Installed)';
+        }
+        option.textContent = text;
+        select.appendChild(option);
+    });
+
+    // 4. Автовыбор
+    let targetVersionTag = null;
+
+    // Приоритет 1: сохранённая в конфиге версия
+    if (state.serverConfig && state.serverConfig.orchestrator_version) {
+        targetVersionTag = state.serverConfig.orchestrator_version;
+    } else {
+        // Приоритет 2: самая свежая из установленных
+        const installedSorted = serverInstalled
+            .map(v => {
+                const match = v.match(/^b(\d+)/);
+                return { tag: v, num: match ? parseInt(match[1], 10) : 0 };
+            })
+            .sort((a, b) => b.num - a.num);
+
+        if (installedSorted.length > 0) {
+            targetVersionTag = installedSorted[0].tag;
+        }
+    }
+
+    // Устанавливаем значение
+    if (targetVersionTag) {
         for (const option of select.options) {
             try {
                 const val = JSON.parse(option.value);
-                if (val.version_tag === savedTag) {
+                if (val.version_tag === targetVersionTag) {
                     select.value = option.value;
                     break;
                 }
             } catch (e) {}
         }
+    } else if (!select.value && select.options.length > 0) {
+        select.selectedIndex = 0;
     }
 }
 

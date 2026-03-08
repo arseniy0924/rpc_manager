@@ -1,126 +1,50 @@
-# Architecture & Development Plan: Local AI Cluster Manager
+# Project Context: Llama.cpp RPC Manager & Orchestrator
 
-## 1. Project Structure
+## 📌 Описание проекта
+Веб-интерфейс (Дашборд) для управления кластером нейросетей на базе `llama.cpp`. Система состоит из Главного сервера (Orchestrator) и удаленных вычислительных узлов (RPC Nodes). Позволяет распределять слои тяжелых LLM (например, Qwen 35B) по локальным и удаленным видеокартам (Vulkan / CUDA).
 
-The project will be divided into two main components: `server` (Manager) and `client` (Node Agent).
+## 🛠 Технологический стек и Архитектура
+- **Backend:** Python 3, Flask, Flask-SocketIO (для телеметрии реального времени).
+- **Frontend:** HTML, TailwindCSS, Vanilla JavaScript (ES6 Modules).
+- **Core Engine:** `llama-server.exe` (llama.cpp) с поддержкой RPC, CUDA и Vulkan.
+- **Discovery:** Главный сервер вещает через mDNS (`_rpc-manager._tcp.local.`), а агенты автоматически его находят.
+- **Telemetry:** Агенты шлют HTTP POST (`/api/heartbeat`), а сервер пушит данные в UI через WebSocket (`socket.emit`).
 
-```text
-rpc_manager/
-├── server/                     # Backend Server (Flask)
-│   ├── app.py                  # Application entry point
-│   ├── config.py               # Configuration (Secret keys, paths)
-│   ├── database.py             # SQLite models and connection
-│   ├── extensions.py           # Flask extensions (SocketIO, SQLAlchemy)
-│   ├── routes/                 # Route definitions
-│   │   ├── api.py              # API for Agents (telemetry, registration)
-│   │   └── web.py              # UI routes for the Dashboard
-│   ├── services/               # Business Logic
-│   │   ├── discovery.py        # mDNS/Zeroconf service listener
-│   │   └── github_updater.py   # Logic to fetch llama.cpp releases
-│   ├── static/                 # Frontend Assets
-│   │   ├── css/                # Tailwind output / custom styles
-│   │   └── js/                 # Dashboard logic (Socket.IO client)
-│   └── templates/              # HTML Templates (Jinja2)
-│       ├── base.html
-│       └── dashboard.html
-├── client/                     # Node Agent
-│   ├── main.py                 # Agent entry point
-│   ├── config.py               # Agent settings (Server URL, Node Name)
-│   ├── hardware.py             # Telemetry collection (psutil, pynvml)
-│   ├── runner.py               # Wrapper for llama.cpp process (subprocess)
-│   ├── network.py              # HTTP Client & Discovery logic
-│   └── system.py               # OS integration (Startup, Registry)
-├── requirements.txt            # Python dependencies
-└── README.md
-```
+## 📂 Ключевые файлы
 
-## 2. Architecture & Communication
+### Backend (Python)
+- `app.py`: Главный сервер Flask. Обрабатывает REST API и WebSocket соединения.
+- `orchestrator.py`: Управляет процессом `llama-server.exe`. Формирует команды запуска, применяет изоляцию GPU через переменные окружения (`CUDA_VISIBLE_DEVICES`, `GGML_VK_VISIBLE_DEVICES`), читает логи процесса.
+- `services/discovery.py`: mDNS/Zeroconf.
+- `services/github_updater.py`: Логика скачивания релизов `llama.cpp`.
 
-### Interaction Model
-*   **Server:** Acts as the central command center. It hosts the Web UI and an API for agents.
-*   **Client (Agent):** Runs on each GPU node. It actively connects to the Server.
-*   **Discovery:**
-    *   **Server** broadcasts its presence via **mDNS (Zeroconf)**.
-    *   **Client** listens for the service `_rpc-manager._tcp.local.` to automatically find the server IP and port.
-*   **Telemetry & Heartbeat:**
-    *   **Protocol:** HTTP POST (JSON)
-    *   **Frequency:** Every 2-5 seconds (configurable).
-    *   **Flow:** Client sends `POST /api/heartbeat` with telemetry data.
-    *   **Response:** Server replies with `200 OK` and a JSON body containing any **pending commands** (e.g., `{"action": "start_llama", "args": "..."}`).
-*   **Real-time Dashboard:**
-    *   **Protocol:** WebSocket (Flask-SocketIO).
-    *   The Server pushes updates to the Web Browser whenever a heartbeat is received from an agent, ensuring the UI is always in sync.
+### Frontend (JavaScript - `server/static/js/`)
+- `main.js`: Точка входа. Управляет сокетами, обновляет глобальные счетчики ресурсов кластера (`clusterStats`), содержит "сторожевой таймер" (Watchdog) для отключения зависших нод.
+- `orchestrator.js`: Логика Главного сервера. Выбор моделей, скачивание версий бинарников (без дубликатов через `Set`), сохранение пресетов, сбор локальных GPU (`.local-gpu-toggle`) и запуск кластера.
+- `ui.js`: Отрисовка карточек удаленных нод. Кнопки Start/Stop RPC, тумблеры нод, сбор удаленных GPU (`.gpu-toggle`), функция безопасного копирования в буфер.
+- `api.js`: Все `fetch` запросы к бэкенду.
 
-### Data Formats (JSON)
+## ⚠️ Критические правила проекта (НЕ ЛОМАТЬ!)
 
-#### 1. Telemetry Payload (Client -> Server)
-```json
-{
-  "node_id": "uuid-or-mac-address",
-  "hostname": "My-GPU-Node-1",
-  "platform": "Windows 10",
-  "status": "IDLE",  // or "RUNNING", "UPDATING", "OFFLINE"
-  "resources": {
-    "cpu_percent": 15.5,
-    "ram_total_gb": 32.0,
-    "ram_used_gb": 4.5,
-    "gpus": [
-      {
-        "index": 0,
-        "name": "NVIDIA GeForce RTX 3090",
-        "vram_total_mb": 24576,
-        "vram_used_mb": 1024,
-        "temp_c": 45,
-        "load_percent": 0
-      }
-    ]
-  },
-  "llama_status": {
-    "running": false,
-    "pid": null,
-    "port": 8080,
-    "version": "b1234"
-  }
-}
-```
+При внесении изменений строго учитывайте следующие исторические фиксы:
 
-#### 2. Command Response (Server -> Client)
-The server responds to the heartbeat with instructions if needed.
-```json
-{
-  "commands": [
-    {
-      "id": "cmd_123",
-      "type": "START_LLAMA",
-      "payload": {
-        "backend": "cuda",
-        "model_path": "models/llama-2-7b.gguf",
-        "flags": ["--n-gpu-layers", "99", "--port", "8080"]
-      }
-    }
-  ]
-}
-```
-*Possible Command Types:* `START_LLAMA`, `STOP_LLAMA`, `UPDATE_BINARY`, `REBOOT_SYSTEM`.
+1. **Разница в названиях переменных телеметрии (Fallback parsing):**
+   Бэкенд сервера и RPC-ноды присылают ключи ресурсов с разными суффиксами. Обязательно использовать `||` при парсинге:
+   - RAM: `parseFloat(data.ram_used || data.ram_used_gb || 0)`
+   - GPU VRAM: `parseFloat(gpu.vram_used_gb || gpu.used_gb || 0)`
+   - GPU Temp: `(gpu.temp || gpu.temp_c || 0)`
 
-## 3. Development Plan (Modules)
+2. **Сбор галочек GPU на Frontend:**
+   - **Локальные карты** (Главный сервер) имеют класс `.local-gpu-toggle` (и атрибут `data-gpu-index`). Собираются в `orchestrator.js`.
+   - **Удаленные карты** (Ноды) имеют класс `.gpu-toggle`. Собираются строго внутри контейнера своей карточки `#node-${nodeId}`. Не смешивать их!
 
-### Phase 1: Foundation (Server & Client Skeleton)
-1.  **Server:** Setup Flask, SQLite, and basic UI template (Tailwind).
-2.  **Client:** Setup basic loop, hardware detection stub, and HTTP heartbeat.
-3.  **Connectivity:** Implement mDNS discovery so Client finds Server automatically.
+3. **Изоляция видеокарт (GPU Isolation в `orchestrator.py`):**
+   - Фронтенд присылает массив `selected_gpus` (например, `[0, 1, 2]`).
+   - Бэкенд ОБЯЗАН фильтровать дубликаты через `set()` и обрабатывать пустой список (ставить `CUDA_VISIBLE_DEVICES="-1"`).
+   - Для **Vulkan** используется жесткий маппинг индексов: `{0:0, 1:2, 2:1}` (специфика оборудования).
 
-### Phase 2: Telemetry & Dashboard
-1.  **Client:** Implement `hardware.py` using `psutil` and `pynvml` (NVIDIA Management Library) for real GPU stats.
-2.  **Server:** Create API endpoint to receive telemetry and update the in-memory/database state.
-3.  **UI:** Connect Flask-SocketIO to push these updates to the frontend. Design the "Node Card" component.
+4. **Сторожевой таймер (Watchdog):**
+   В `main.js` внутри `socket.on('node_updated')` работает таймер `nodeWatchdogs` на 15 секунд. Если от ноды нет пинга, она принудительно переводится в статус `OFFLINE`, её визуальные ресурсы обнуляются, а память вычитается из глобального `clusterStats`.
 
-### Phase 3: Llama.cpp Management
-1.  **Client:** Implement `runner.py` to handle `subprocess.Popen` for `llama-server.exe`. Handle stdout/stderr logging.
-2.  **Server:** Add UI controls to configure launch arguments (model path, layers, backend) and send "Start/Stop" commands via the heartbeat response.
-
-### Phase 4: Updates & System Integration
-1.  **Server:** Implement GitHub API parser to find assets (llama-bXXXX-bin-win-avx2-x64.zip).
-2.  **Client:** Implement logic to download URL provided by server, unzip, and replace binaries.
-3.  **Client:** Add "Add to Startup" logic (Windows Registry).
-4.  **Packaging:** Configure PyInstaller spec file for single-file EXE generation.
+5. **Работа с буфером обмена (Clipboard API):**
+   Поскольку приложение собирается в `.exe` и открывается по локальному IP (без HTTPS), стандартный `navigator.clipboard` блокируется. В `ui.js` реализована функция `copyToClipboard` с фолбэком на создание невидимого `<textarea>` и `document.execCommand('copy')`. Использовать только её.

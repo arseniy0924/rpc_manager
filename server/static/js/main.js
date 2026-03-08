@@ -25,7 +25,8 @@ import {
     saveCurrentPreset,
     saveFormState,
     restoreFormState,
-    copyAllLogs
+    copyAllLogs,
+    calculateVRAM
 } from './orchestrator.js';
 
 // --- Global Cluster Stats Cache ---
@@ -116,8 +117,14 @@ function attachFormListeners() {
     ids.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            el.addEventListener('change', saveFormState);
-            el.addEventListener('input', saveFormState);
+            el.addEventListener('change', () => {
+                saveFormState();
+                calculateVRAM();
+            });
+            el.addEventListener('input', () => {
+                saveFormState();
+                calculateVRAM();
+            });
         }
     });
 }
@@ -141,6 +148,7 @@ socket.on('node_updated', (data) => {
             updateNodeCard(data);
             delete clusterStats.nodes[data.node_id];
             if (typeof updateClusterTotals === 'function') updateClusterTotals();
+            calculateVRAM();
         }, 15000);
     }
 
@@ -178,6 +186,7 @@ socket.on('node_updated', (data) => {
         }
 
         updateClusterTotals();
+        calculateVRAM();
     });
 });
 // --- Server Telemetry Handler ---
@@ -202,6 +211,7 @@ socket.on('server_telemetry', (data) => {
     clusterStats.server.vram_total = vramTotal;
 
     updateClusterTotals();
+    calculateVRAM();
 });
 
 function updateServerHeader(data) {

@@ -214,6 +214,19 @@ export async function fetchModels() {
     return { models: [] };
 }
 
+export async function fetchModelInfo(modelPath) {
+    try {
+        const encodedPath = encodeURIComponent(modelPath);
+        const response = await fetch(`/api/model/info?path=${encodedPath}`);
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (error) {
+        console.error('Error fetching model info:', error);
+    }
+    return null;
+}
+
 // --- Commands ---
 
 export async function sendCommand(nodeId, commandData) {

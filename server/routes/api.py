@@ -7,6 +7,7 @@ from agents and updating the server state.
 import logging
 import time
 import os
+import struct
 from pathlib import Path
 from flask import Blueprint, request, jsonify
 from server.extensions import ACTIVE_NODES, socketio, SERVER_CONFIG, save_config
@@ -315,6 +316,72 @@ def list_models():
         return jsonify({"error": "Failed to scan models directory"}), 500
         
     return jsonify({"models": models}), 200
+
+
+@api_bp.route('/model/info', methods=['GET'])
+def get_model_info():
+    """
+    Returns metadata for a specific GGUF model file.
+    """
+    model_path = request.args.get('path')
+    if not model_path:
+        return jsonify({"error": "Missing path parameter"}), 400
+    
+    if not os.path.exists(model_path):
+        logger.error(f"Model file not found: {model_path}")
+        return jsonify({"error": "File not found"}), 404
+    
+    try:
+        file_size_gb = round(os.path.getsize(model_path) / (1024**3), 2)
+        
+        # Default values
+        metadata = {"n_layer": 32, "n_ctx_train": 4096}
+        
+        # Try to parse GGUF metadata
+        try:
+            with open(model_path, 'rb') as f:
+                if f.read(4) == b'GGUF':
+                    version = struct.unpack('<I', f.read(4))[0]
+                    if version in [2, 3]:
+                        f.read(8) # skip tensor_count
+                        kv_count = struct.unpack('<Q', f.read(8))[0]
+                        
+                        def read_gguf_val(t, fileobj):
+                            if t in (0, 1, 7): return struct.unpack('<B' if t != 1 else '<b', fileobj.read(1))[0]
+                            if t in (2, 3): return struct.unpack('<H' if t == 2 else '<h', fileobj.read(2))[0]
+                            if t in (4, 5, 6): return struct.unpack('<I' if t == 4 else ('<i' if t == 5 else '<f'), fileobj.read(4))[0]
+                            if t in (10, 11, 12): return struct.unpack('<Q' if t == 10 else ('<q' if t == 11 else '<d'), fileobj.read(8))[0]
+                            if t == 8:
+                                slen = struct.unpack('<Q', fileobj.read(8))[0]
+                                return fileobj.read(slen).decode('utf-8', errors='ignore')
+                            if t == 9: # ARRAY
+                                atyp = struct.unpack('<I', fileobj.read(4))[0]
+                                alen = struct.unpack('<Q', fileobj.read(8))[0]
+                                res = []
+                                for _ in range(alen): res.append(read_gguf_val(atyp, fileobj))
+                                return res
+                            return None
+
+                        for _ in range(kv_count):
+                            klen = struct.unpack('<Q', f.read(8))[0]
+                            key = f.read(klen).decode('utf-8', errors='ignore')
+                            vtype = struct.unpack('<I', f.read(4))[0]
+                            
+                            val = read_gguf_val(vtype, f)
+                            if key.endswith('.block_count'): metadata['n_layer'] = int(val)
+                            elif key.endswith('.context_length'): metadata['n_ctx_train'] = int(val)
+        except Exception as e:
+            logger.error(f"Error parsing GGUF metadata for {model_path}: {e}")
+            
+        return jsonify({
+            "file_size_gb": file_size_gb,
+            "n_layer": metadata["n_layer"],
+            "n_ctx_train": metadata["n_ctx_train"]
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in get_model_info: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @api_bp.route('/orchestrator/start', methods=['POST'])

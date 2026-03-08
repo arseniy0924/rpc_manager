@@ -112,6 +112,24 @@
                         <select id="main-model-select" class="bg-gray-900 border border-gray-700 text-white p-2 rounded w-full text-sm focus:ring-blue-500 focus:border-blue-500">
                             <option value="" disabled selected>No models found (configure path first)</option>
                         </select>
+
+                        <!-- Smart Fit Calculator Panel -->
+                        <div id="vram-calculator-panel" class="hidden mt-4 p-3 rounded border transition-colors duration-300">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <span id="vram-icon" class="text-xl">📊</span>
+                                    <span class="font-bold text-sm text-white">Smart Fit Calculator</span>
+                                </div>
+                                <span id="vram-status-text" class="text-xs font-bold uppercase tracking-wider"></span>
+                            </div>
+                            <div class="mt-2 text-sm text-gray-300 grid grid-cols-2 gap-2">
+                                <div>Required VRAM: <span id="vram-required" class="font-mono font-bold text-white">0.0 GB</span></div>
+                                <div>Available VRAM: <span id="vram-available" class="font-mono font-bold text-white">0.0 GB</span></div>
+                            </div>
+                            <div id="vram-warning" class="mt-2 text-xs text-red-400 hidden">
+                                ⚠️ Не хватает <span id="vram-deficit">0.0</span> GB. Модель переполнит память и уйдет в RAM (CPU).
+                            </div>
+                        </div>
                     </div>
 
                     <div class="bg-gray-900/50 border border-gray-700 rounded-lg p-4">

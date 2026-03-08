@@ -2,6 +2,7 @@ import { state } from './state.js';
 import {
     saveConfig,
     fetchModels,
+    fetchModelInfo,
     updateServerBinary,
     saveOrchestratorConfig,
     saveOrchestratorPort,
@@ -14,10 +15,12 @@ import {
     savePreset,
     loadLastSelectedModel,
     saveLastSelectedModel,
-    startRpc, // <-- ДОБАВИТЬ ЭТО
-    stopRpc   // <-- И ЭТО
+    startRpc,
+    stopRpc
 } from './api.js';
 import { copyToClipboard } from './ui.js';
+
+let currentModelMeta = null;
 
 export async function saveConfigAndScan() {
     const pathInput = document.getElementById('models-path-input');
@@ -78,13 +81,19 @@ export async function populateModelsSelect() {
                 select.value = lastModel;
                 // Load presets for restored model
                 await loadPresetsForModel(lastModel);
+                // Load model info
+                currentModelMeta = await fetchModelInfo(lastModel);
+                calculateVRAM();
             }
         }
 
         // Add event listener for model change
         select.onchange = async () => {
-            await saveLastSelectedModel(select.value);
-            await loadPresetsForModel(select.value);
+            const modelPath = select.value;
+            await saveLastSelectedModel(modelPath);
+            await loadPresetsForModel(modelPath);
+            currentModelMeta = await fetchModelInfo(modelPath);
+            calculateVRAM();
         };
 
     } else {
@@ -94,6 +103,143 @@ export async function populateModelsSelect() {
     }
     select.disabled = false;
 }
+
+export function calculateVRAM() {
+    if (!currentModelMeta) {
+        document.getElementById('vram-calculator-panel')?.classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('vram-calculator-panel')?.classList.remove('hidden');
+
+    let totalAvailableVramGb = 0;
+
+    // 1. Local GPUs
+    const localGpuCheckboxes = document.querySelectorAll('.local-gpu-toggle:checked');
+    localGpuCheckboxes.forEach(cb => {
+        const container = cb.closest('.gpu-item') || cb.parentElement;
+        const vramText = container.textContent || "";
+        const match = vramText.match(/(\d+\.?\d*)\s*\/\s*(\d+\.?\d*)\s*GB/);
+        if (match) {
+            const total = parseFloat(match[2]);
+            const used = parseFloat(match[1]);
+            totalAvailableVramGb += (total - used);
+        } else {
+            const simpleMatch = vramText.match(/(\d+\.?\d*)\s*GB/);
+            if (simpleMatch) totalAvailableVramGb += parseFloat(simpleMatch[1]);
+        }
+    });
+
+    // 2. Remote GPUs
+    const activeNodeToggles = document.querySelectorAll('.node-enable-toggle:checked');
+    activeNodeToggles.forEach(nodeToggle => {
+        const nodeId = nodeToggle.dataset.nodeId;
+        const nodeCard = document.getElementById(`node-${nodeId}`);
+        if (nodeCard) {
+            const remoteGpuCheckboxes = nodeCard.querySelectorAll('.gpu-toggle:checked');
+            remoteGpuCheckboxes.forEach(cb => {
+                const container = cb.closest('.gpu-item') || cb.parentElement;
+                const vramText = container.textContent || "";
+                const match = vramText.match(/(\d+\.?\d*)\s*\/\s*(\d+\.?\d*)\s*GB/);
+                if (match) {
+                    const total = parseFloat(match[2]);
+                    const used = parseFloat(match[1]);
+                    totalAvailableVramGb += (total - used);
+                } else {
+                    const simpleMatch = vramText.match(/(\d+\.?\d*)\s*GB/);
+                    if (simpleMatch) totalAvailableVramGb += parseFloat(simpleMatch[1]);
+                }
+            });
+        }
+    });
+
+    // 3. Required VRAM
+    let totalRequiredVramGb = 0;
+
+    if (currentModelMeta && currentModelMeta.n_layer > 0) {
+        const requestedLayers = parseInt(document.getElementById('param-ngl')?.value || 0);
+        const actualOffloadedLayers = Math.min(requestedLayers, currentModelMeta.n_layer); // Защита от NGL 99
+
+        const vramPerLayer = currentModelMeta.file_size_gb / currentModelMeta.n_layer;
+        const weightsVram = vramPerLayer * actualOffloadedLayers;
+
+        // --- УЧЕТ КВАНТОВАНИЯ KV CACHE ---
+        const contextSize = parseInt(document.getElementById('param-c')?.value || 4096);
+
+        const getCacheMultiplier = (type) => {
+            if (type === 'q8_0') return 0.5;      // 8-bit: в 2 раза меньше памяти
+            if (type && type.startsWith('q4')) return 0.25; // 4-bit: в 4 раза меньше
+            return 1.0;                           // f16 (базовый вес)
+        };
+
+        const cacheK = document.getElementById('param-cache-k')?.value || 'f16';
+        const cacheV = document.getElementById('param-cache-v')?.value || 'f16';
+
+        // Усредняем множитель (половина памяти идет на ключи K, половина на значения V)
+        const cacheMultiplier = (getCacheMultiplier(cacheK) + getCacheMultiplier(cacheV)) / 2;
+
+        // Базовая эвристика (~125 MB на 1k токенов) умножается на множитель квантования
+        const kv_cache_gb = (contextSize / 1024) * 0.125 * cacheMultiplier;
+
+        // Итоговый расчет + 0.2 GB системный буфер llama.cpp
+        totalRequiredVramGb = weightsVram + kv_cache_gb + 0.2;
+    }
+
+    updateVramUI(totalRequiredVramGb, totalAvailableVramGb);
+}
+
+export function updateVramUI(required, available) {
+    const panel = document.getElementById('vram-calculator-panel');
+    const icon = document.getElementById('vram-icon');
+    const statusText = document.getElementById('vram-status-text');
+    const reqText = document.getElementById('vram-required');
+    const availText = document.getElementById('vram-available');
+    const warning = document.getElementById('vram-warning');
+    const deficitSpan = document.getElementById('vram-deficit');
+
+    if (!panel) return;
+
+    reqText.textContent = `${required.toFixed(2)} GB`;
+    availText.textContent = `${available.toFixed(2)} GB`;
+
+    if (available >= required) {
+        panel.classList.remove('bg-red-900/30', 'border-red-700');
+        panel.classList.add('bg-green-900/30', 'border-green-700');
+        icon.textContent = '✅';
+        statusText.textContent = 'Fit OK';
+        statusText.className = 'text-xs font-bold uppercase tracking-wider text-green-400';
+        warning.classList.add('hidden');
+    } else {
+        panel.classList.remove('bg-green-900/30', 'border-green-700');
+        panel.classList.add('bg-red-900/30', 'border-red-700');
+        icon.textContent = '⚠️';
+        statusText.textContent = 'Memory Overflow';
+        statusText.className = 'text-xs font-bold uppercase tracking-wider text-red-400';
+        warning.classList.remove('hidden');
+        deficitSpan.textContent = (required - available).toFixed(2);
+    }
+}
+
+// Add listeners to inputs that affect VRAM
+document.addEventListener('DOMContentLoaded', () => {
+    const vramInputs = ['param-ngl', 'param-c', 'param-cache-k', 'param-cache-v'];
+    vramInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', calculateVRAM);
+            el.addEventListener('change', calculateVRAM);
+        }
+    });
+
+    // Also listen for GPU toggle changes
+    document.addEventListener('change', (e) => {
+        if (e.target.classList.contains('local-gpu-toggle') ||
+            e.target.classList.contains('gpu-toggle') ||
+            e.target.classList.contains('node-enable-toggle')) {
+            calculateVRAM();
+        }
+    });
+});
 
 export async function loadPresetsForModel(modelPath, targetName = null) {
     if (!modelPath) return;
@@ -133,6 +279,7 @@ export async function loadPresetsForModel(modelPath, targetName = null) {
         // Save selection to localStorage
         localStorage.setItem('lastSelectedPreset', presetSelect.value);
         applyPresetSettings(presetSelect.value);
+        calculateVRAM(); // Recalculate after preset applied
     };
 }
 

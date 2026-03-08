@@ -31,7 +31,7 @@ class LlamaGitHubFetcher:
         
         # Check cache validity
         if self._cache is not None and (current_time - self._last_fetch_time) < self.CACHE_DURATION_SECONDS:
-            logger.info("Returning cached release data.")
+            logger.debug("Returning cached release data.")
             return self._cache
 
         logger.info("Fetching latest releases from GitHub...")

@@ -96,12 +96,53 @@ def get_server_telemetry():
 def server_telemetry_worker():
     """
     Фоновая задача для отправки телеметрии сервера каждые 3 секунды.
+    Также проверяет таймауты нод и логирует отключения.
     """
+    # Храним время последнего хартбита для каждой ноды
+    last_heartbeat = {}
+    
     while True:
         try:
+            # 1. Отправляем телеметрию сервера
             data = get_server_telemetry()
             if data:
                 socketio.emit('server_telemetry', data)
+            
+            # 2. Проверяем таймауты нод
+            current_time = time.time()
+            timeout_threshold = 10  # секунд
+            
+            # Создаем копию ключей, чтобы избежать изменения словаря во время итерации
+            node_ids = list(ACTIVE_NODES.keys())
+            
+            for node_id in node_ids:
+                node_data = ACTIVE_NODES.get(node_id, {})
+                last_seen = node_data.get('last_seen', 0)
+                
+                # Обновляем время последнего хартбита
+                if 'timestamp' in node_data:
+                    last_heartbeat[node_id] = node_data['timestamp']
+                elif node_id not in last_heartbeat:
+                    # Если нода есть в ACTIVE_NODES, но нет в last_heartbeat, 
+                    # значит она была добавлена вручную (например, через /command)
+                    # Считаем, что она была "видена" недавно
+                    last_heartbeat[node_id] = current_time
+                
+                # Проверяем таймаут
+                last_seen_time = last_heartbeat.get(node_id, 0)
+                if current_time - last_seen_time > timeout_threshold:
+                    # Нода ушла в таймаут
+                    hostname = node_data.get('hostname', 'Unknown')
+                    logger.info(f"🔴 Node disconnected: {hostname} ({node_id})")
+                    
+                    # Удаляем ноду из активных
+                    del ACTIVE_NODES[node_id]
+                    if node_id in last_heartbeat:
+                        del last_heartbeat[node_id]
+                    
+                    # Уведомляем клиентов об удалении ноды
+                    socketio.emit('node_removed', {'node_id': node_id})
+                    
         except Exception as e:
             logger.error(f"Error in telemetry worker: {e}")
         time.sleep(3)

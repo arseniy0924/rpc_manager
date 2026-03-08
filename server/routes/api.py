@@ -47,6 +47,8 @@ def heartbeat():
     if node_id not in ACTIVE_NODES:
         ACTIVE_NODES[node_id] = {}
         ACTIVE_NODES[node_id]['pending_commands'] = []
+        # Log new connection
+        logger.info(f"🟢 Node connected: {data.get('hostname')} ({node_id})")
     
     # Preserve existing pending commands before updating the rest of the data
     pending_commands = ACTIVE_NODES[node_id].get('pending_commands', [])
@@ -57,10 +59,13 @@ def heartbeat():
     # Store the IP address of the node for RPC connection
     ACTIVE_NODES[node_id]['ip'] = request.remote_addr
     
+    # Обновляем timestamp для отслеживания таймаутов
+    ACTIVE_NODES[node_id]['timestamp'] = time.time()
+    
     # Ensure pending_commands is still there (in case data overwrote it, though update usually merges)
     ACTIVE_NODES[node_id]['pending_commands'] = pending_commands
     
-    logger.info(f"Received heartbeat from {node_id} ({data.get('hostname')})")
+    logger.debug(f"Received heartbeat from {node_id} ({data.get('hostname')})")
 
     # Push the update to all connected dashboard clients
     socketio.emit('node_updated', ACTIVE_NODES[node_id])

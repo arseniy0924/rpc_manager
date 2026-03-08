@@ -5,6 +5,7 @@ This blueprint handles API endpoints, specifically for receiving heartbeats
 from agents and updating the server state.
 """
 import logging
+import time
 import os
 from pathlib import Path
 from flask import Blueprint, request, jsonify

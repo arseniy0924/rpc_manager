@@ -17,7 +17,7 @@ import time
 import psutil
 import pynvml
 from flask import Flask
-from server.extensions import socketio
+from server.extensions import socketio, ACTIVE_NODES
 from server.routes.web import web_bp
 from server.routes.api import api_bp
 from server.services.discovery import ServerDiscovery

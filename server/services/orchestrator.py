@@ -120,21 +120,23 @@ class MainOrchestrator:
                 env["SYCL_DEVICE_FILTER"] = ""
                 logger.info("Local GPU disabled via environment variables.")
             elif selected_gpus:
-                # Apply GPU isolation for local execution
-                gpus_str = ",".join(map(str, selected_gpus))
+                # Убираем дубликаты и сортируем индексы
+                unique_gpus = sorted(list(set(selected_gpus)))
+                gpus_str = ",".join(map(str, unique_gpus))
+
                 env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
                 env["CUDA_VISIBLE_DEVICES"] = gpus_str
-                
+
                 # Vulkan isolation
                 env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
                 if "vulkan" in version_tag.lower():
-                    # Apply Vulkan index mapping {0:0, 1:2, 2:1}
+                    # Применяем маппинг индексов для Vulkan {0:0, 1:2, 2:1}
                     vulkan_map = {0: 0, 1: 2, 2: 1}
-                    vulkan_selected = [str(vulkan_map.get(i, i)) for i in selected_gpus]
+                    vulkan_selected = [str(vulkan_map.get(i, i)) for i in unique_gpus]
                     env["GGML_VK_VISIBLE_DEVICES"] = ",".join(vulkan_selected)
                 else:
                     env["GGML_VK_VISIBLE_DEVICES"] = gpus_str
-                
+
                 logger.info(f"Local GPU isolation applied: {gpus_str}")
         else:
             # Default behavior if no params provided

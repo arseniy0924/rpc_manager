@@ -104,30 +104,40 @@ socket.on('server_telemetry', (data) => {
 });
 
 function updateServerHeader(data) {
-    // CPU
-    const cpuBar = document.getElementById('server-cpu-bar');
-    const cpuText = document.getElementById('server-cpu-text');
-    if (cpuBar && cpuText) {
-        cpuBar.style.width = `${data.cpu_percent}%`;
-        cpuText.textContent = `${data.cpu_percent}%`;
-    }
-
-    // RAM
-    const ramText = document.getElementById('server-ram-text');
-    if (ramText) {
-        ramText.textContent = `${data.ram_used}/${data.ram_total} GB`;
-    }
-
-    // GPU
     const gpuContainer = document.getElementById('server-gpu-container');
     const gpuText = document.getElementById('server-gpu-text');
+    if (!gpuContainer || !gpuText) return;
+
     if (data.gpus && data.gpus.length > 0) {
         gpuContainer.classList.remove('hidden');
-        const gpusHtml = data.gpus.map(g => 
-            `<span class="mr-3 whitespace-nowrap"><b>${g.name}</b>: ${g.temp}°C • ${g.used_gb}/${g.total_gb} GB</span>`
-        ).join('<span class="text-gray-500 mx-2">|</span>');
-        gpuText.innerHTML = gpusHtml;
-    } else if (gpuContainer) {
+
+        // 1. Сохраняем текущее состояние галок перед перерисовкой
+        const currentStates = {};
+        document.querySelectorAll('.local-gpu-toggle').forEach(cb => {
+            currentStates[cb.dataset.gpuIndex] = cb.checked;
+        });
+
+        // 2. Генерируем HTML с чекбоксами
+        const gpusHtml = data.gpus.map(g => {
+            // Если карта новая, ставим по умолчанию true. Если была - берем сохраненное состояние.
+            const isChecked = currentStates[g.index] !== undefined ? currentStates[g.index] : true;
+            return `
+                <div class="flex items-center bg-gray-800/60 px-2 py-1 rounded border border-gray-700 whitespace-nowrap">
+                    <input type="checkbox"
+                           class="local-gpu-toggle mr-2 accent-green-500 cursor-pointer w-4 h-4"
+                           data-gpu-index="${g.index}"
+                           ${isChecked ? 'checked' : ''}>
+                    <span class="text-xs">
+                        <b class="text-green-400">${g.name}</b>
+                        <span class="text-gray-500">|</span> ${g.temp}°C
+                        <span class="text-gray-500">|</span> ${(g.used_gb || 0).toFixed(2)}/${(g.total_gb || 0).toFixed(2)} GB
+                    </span>
+                </div>
+            `;
+        }).join('<div class="w-2"></div>');
+
+        gpuText.innerHTML = `<div class="flex flex-wrap gap-2">${gpusHtml}</div>`;
+    } else {
         gpuContainer.classList.add('hidden');
     }
 }

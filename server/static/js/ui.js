@@ -131,6 +131,12 @@ export function updateCardContent(card, data) {
     // Header
     card.querySelector('.node-hostname').textContent = data.hostname;
 
+    // Update IP address display
+    const ipElement = card.querySelector('.node-ip');
+    if (ipElement) {
+        ipElement.textContent = data.ip || 'Unknown IP';
+    }
+
     // ВАЖНО: Обновляем IP в dataset тумблера, чтобы orchestrator.js его видел
     const toggle = card.querySelector('.node-enable-toggle');
     if (toggle) {

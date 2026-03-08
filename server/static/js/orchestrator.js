@@ -191,15 +191,6 @@ export async function populateServerSelect() {
     const select = document.getElementById('main-version-select');
     if (!select) return;
 
-    // 1. ЗАПОМИНАЕМ ТЕКУЩИЙ ВЫБОР (перед обновлением списка)
-    let currentTag = null;
-    if (select.value && select.value.trim().startsWith('{')) {
-        try {
-            currentTag = JSON.parse(select.value).version_tag;
-        } catch (e) {}
-    }
-
-    // 2. ЗАПРОСЫ ДАННЫХ
     const [releasesData, serverVersionsData] = await Promise.all([
         fetch('/api/releases').then(r => r.ok ? r.json() : {}),
         fetch('/api/server/versions').then(r => r.ok ? r.json() : { installed: [] })
@@ -207,30 +198,26 @@ export async function populateServerSelect() {
 
     const combinedVersions = [];
     const serverInstalled = serverVersionsData.installed || [];
-    const addedTags = new Set(); // Защита от дубликатов
+    const addedTags = new Set();
 
-    // 3. ДОБАВЛЯЕМ УСТАНОВЛЕННЫЕ ВЕРСИИ (они в приоритете)
+    // 1. Сначала добавляем установленные
     serverInstalled.forEach(tag => {
-        if (!addedTags.has(tag)) {
-            combinedVersions.push({
-                version_tag: tag,
-                name: releasesData[tag] ? `Llama ${tag}` : `Local: ${tag}`,
-                is_installed: true,
-                // Ищем метаданные в ответах GitHub, если они там есть
-                url: releasesData[tag]?.backends?.[tag.split('_').pop()]?.url || "",
-                filename: releasesData[tag]?.backends?.[tag.split('_').pop()]?.filename || ""
-            });
-            addedTags.add(tag);
-        }
+        combinedVersions.push({
+            version_tag: tag,
+            name: releasesData[tag] ? `Llama ${tag}` : `Local: ${tag}`,
+            is_installed: true,
+            url: releasesData[tag]?.backends?.[tag.split('_').pop()]?.url || "",
+            filename: releasesData[tag]?.backends?.[tag.split('_').pop()]?.filename || ""
+        });
+        addedTags.add(tag);
     });
 
-    // 4. ДОБАВЛЯЕМ ОСТАЛЬНЫЕ ВЕРСИИ ИЗ GITHUB
+    // 2. Добавляем остальные из GitHub
     for (const releaseTag in releasesData) {
         const release = releasesData[releaseTag];
         for (const backendKey in release.backends) {
             const versionTag = `${release.tag_name}_${backendKey}`;
-
-            if (addedTags.has(versionTag)) continue; // Пропускаем, если уже добавлена
+            if (addedTags.has(versionTag)) continue;
 
             const backend = release.backends[backendKey];
             combinedVersions.push({
@@ -245,58 +232,55 @@ export async function populateServerSelect() {
         }
     }
 
-    // 5. ОТРИСОВКА <OPTION>
     select.innerHTML = '<option value="" disabled>Select Version...</option>';
-    combinedVersions.forEach(version => {
+    combinedVersions.forEach(v => {
         const option = document.createElement('option');
+        // ПЕРЕДАЕМ is_installed В JSON
         option.value = JSON.stringify({
-            url: version.url,
-            filename: version.filename,
-            version_tag: version.version_tag,
-            extra_assets: version.extra_assets || []
+            url: v.url,
+            filename: v.filename,
+            version_tag: v.version_tag,
+            extra_assets: v.extra_assets || [],
+            is_installed: v.is_installed
         });
 
-        option.textContent = version.is_installed ? `✅ [INSTALLED] ${version.name}` : version.name;
+        option.textContent = v.is_installed ? `✅ [INSTALLED] ${v.name}` : v.name;
         select.appendChild(option);
     });
 
-    // 6. УМНЫЙ АВТОВЫБОР (чтобы Vulkan не слетал на CUDA)
-    // Приоритет: 1. Текущий выбор -> 2. localStorage -> 3. Config -> 4. Последняя установленная
-    let targetTag = currentTag || localStorage.getItem('lastSelectedOrchestratorTag');
+    // --- ЛОГИКА АВТОМАТИЧЕСКОГО ПРИМЕНЕНИЯ ---
+    select.onchange = async () => {
+        try {
+            const val = JSON.parse(select.value);
+            const logText = document.getElementById('server-download-text');
+            const logDiv = document.getElementById('server-download-log');
 
-    if (!targetTag && state.serverConfig && state.serverConfig.orchestrator_version) {
-        targetTag = state.serverConfig.orchestrator_version;
-    }
+            if (val.is_installed) {
+                // Если версия уже есть, просто сохраняем конфиг
+                await saveOrchestratorConfig(val.version_tag);
+                logDiv.classList.remove('hidden');
+                logText.textContent = `🟢 Version ${val.version_tag} applied! Ready to start.`;
+                logText.classList.remove('text-red-500');
+            } else {
+                logDiv.classList.remove('hidden');
+                logText.textContent = `🔵 New version selected. Click "Install / Update" to download.`;
+                logText.classList.remove('text-red-500');
+            }
+        } catch (e) { console.error(e); }
+    };
 
-    if (!targetTag && serverInstalled.length > 0) {
-        const installedSorted = serverInstalled
-            .map(v => {
-                const match = v.match(/^b(\d+)/);
-                return { tag: v, num: match ? parseInt(match[1], 10) : 0 };
-            })
-            .sort((a, b) => b.num - a.num);
-        targetTag = installedSorted[0].tag;
-    }
-
+    // Автовыбор (как и раньше)
+    let targetTag = (state.serverConfig && state.serverConfig.orchestrator_version) || (serverInstalled[0]);
     if (targetTag) {
         for (const option of select.options) {
             try {
-                const val = JSON.parse(option.value);
-                if (val.version_tag === targetTag) {
+                if (JSON.parse(option.value).version_tag === targetTag) {
                     select.value = option.value;
                     break;
                 }
             } catch (e) {}
         }
     }
-
-    // СОХРАНЯЕМ ВЫБОР ПРИ РУЧНОМ ИЗМЕНЕНИИ
-    select.onchange = () => {
-        try {
-            const val = JSON.parse(select.value);
-            localStorage.setItem('lastSelectedOrchestratorTag', val.version_tag);
-        } catch(e) {}
-    };
 }
 
 export async function installServerVersion() {
@@ -308,14 +292,19 @@ export async function installServerVersion() {
 
     const selectedData = JSON.parse(select.value);
 
+    // Если версия уже установлена, скачивать нечего
+    if (selectedData.is_installed) {
+        alert("This version is already installed and applied.");
+        return;
+    }
+
     const logDiv = document.getElementById('server-download-log');
     const logText = document.getElementById('server-download-text');
     logDiv.classList.remove('hidden');
     logText.classList.remove('text-red-500');
-    logText.textContent = "Starting update request...";
+    logText.textContent = "Starting download from GitHub...";
 
     try {
-        // 1. Отправляем запрос на сервер со всеми данными (включая DLL)
         const response = await fetch('/api/server/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -323,33 +312,16 @@ export async function installServerVersion() {
         });
 
         if (response.ok) {
-            logText.textContent = "Download started on server. Connecting to logs...";
-
-            // 2. Запускаем опрос статуса загрузки
             pollServerUpdateStatus();
-
-            // 3. Сохраняем настройки (оборачиваем в try/catch, чтобы интерфейс не ломался при ошибке)
-            try {
-                const { saveOrchestratorConfig, saveOrchestratorPort } = await import('./api.js');
-                await saveOrchestratorConfig(selectedData.version_tag);
-
-                const portInput = document.getElementById('orchestrator-port-input');
-                if (portInput && portInput.value) {
-                    await saveOrchestratorPort(parseInt(portInput.value));
-                }
-            } catch (configErr) {
-                console.warn("Could not save config, but download continues:", configErr);
-            }
-
+            await saveOrchestratorConfig(selectedData.version_tag);
         } else {
             const errData = await response.json();
-            logText.textContent = "Failed to start update: " + (errData.error || "Unknown error");
-            logText.classList.add("text-red-500");
+            logText.textContent = "Error: " + (errData.error || "Unknown error");
+            logText.classList.add("text-red-400");
         }
     } catch (error) {
-        console.error("Error starting server update:", error);
-        logText.textContent = "JS Error: " + error.message; // Теперь покажет реальную ошибку, а не фейковую сеть
-        logText.classList.add("text-red-500");
+        logText.textContent = "Connection error: " + error.message;
+        logText.classList.add("text-red-400");
     }
 }
 
@@ -517,11 +489,19 @@ export async function updateOrchestratorStatus() {
             }
         } else if (status.state === "LOADING") {
             statusText.innerHTML = `<span class="text-yellow-500 font-bold animate-pulse">Loading Model... (PID: ${status.pid})</span>`;
+        // В orchestrator.js блок READY:
         } else if (status.state === "READY") {
             const port = status.port || 8080;
-            const webUrl = `http://${window.location.hostname}:${port}`;
-            const apiUrl = `http://${window.location.hostname}:${port}/v1`;
-            statusText.innerHTML = `✅ <span class="text-green-400 font-bold">Ready!</span> <a href="${webUrl}" target="_blank" class="text-blue-400 hover:text-blue-300 underline mx-1">Web UI</a> | API: <code class="bg-gray-800 text-gray-300 px-2 py-1 rounded cursor-pointer hover:bg-gray-700 transition-colors" title="Click to copy" onclick="copyToClipboard('${apiUrl}', this)">${apiUrl}</code>`;
+            const hostname = window.location.hostname;
+            const webUrl = `http://${hostname}:${port}`;
+            const apiUrl = `http://${hostname}:${port}/v1`;
+
+            statusText.innerHTML = `
+                ✅ <span class="text-green-400 font-bold">Ready!</span>
+                <a href="${webUrl}" target="_blank" class="text-blue-400 hover:text-blue-300 underline mx-1">Web UI</a>
+                | API: <code class="bg-gray-800 text-gray-300 px-2 py-1 rounded cursor-pointer hover:bg-gray-700"
+                             onclick="copyToClipboard('${apiUrl}', this)">${apiUrl}</code>
+            `;
         }
     } catch (error) {
         console.error("Error fetching orchestrator status:", error);

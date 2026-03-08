@@ -25,7 +25,7 @@ class MainOrchestrator:
         self.state: str = "STOPPED" # STOPPED, LOADING, READY
         self.logs: deque = deque(maxlen=1000)
 
-    def start(self, version_tag: str, model_path: str, rpc_endpoints: str, port: int = 8080, launch_params: Optional[Dict[str, Any]] = None) -> bool:
+    def start(self, version_tag: str, model_path: str, rpc_endpoints: str, port: int = 8080, launch_params: Optional[Dict[str, Any]] = None, selected_gpus: Optional[list] = None) -> bool:
         """
         Starts the main llama.cpp orchestrator process.
 
@@ -35,6 +35,7 @@ class MainOrchestrator:
             rpc_endpoints (str): Comma-separated list of RPC endpoints (e.g., "192.168.1.154:50052,192.168.1.155:50052").
             port (int): The port to bind the HTTP server to.
             launch_params (dict, optional): Additional launch parameters (c, ngl, cache_type_k, etc.).
+            selected_gpus (list, optional): List of GPU indices to use for local execution.
 
         Returns:
             bool: True if the process started successfully, False otherwise.
@@ -84,7 +85,7 @@ class MainOrchestrator:
         if launch_params:
             if launch_params.get("c"):
                 command.extend(["-c", str(launch_params["c"])])
-            
+
             if launch_params.get("ngl"):
                 command.extend(["-ngl", str(launch_params["ngl"])])
             else:
@@ -93,24 +94,24 @@ class MainOrchestrator:
 
             if launch_params.get("cache_type_k"):
                 command.extend(["--cache-type-k", str(launch_params["cache_type_k"])])
-            
+
             if launch_params.get("cache_type_v"):
                 command.extend(["--cache-type-v", str(launch_params["cache_type_v"])])
-            
+
             if launch_params.get("flash_attn"):
                 command.extend(["--flash-attn", "on"])
-            
+
             if launch_params.get("no_mmap"):
                 command.append("--no-mmap")
-                
+
             if launch_params.get("fit"):
                 command.extend(["--fit", str(launch_params["fit"])])
-                
+
             if launch_params.get("custom_args"):
                 # Split custom args string into list items
                 custom_args = str(launch_params["custom_args"]).split()
                 command.extend(custom_args)
-                
+
             # Disable local GPU if requested
             if launch_params.get("disable_local_gpu"):
                 env["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -118,6 +119,23 @@ class MainOrchestrator:
                 env["GGML_VK_VISIBLE_DEVICES"] = ""
                 env["SYCL_DEVICE_FILTER"] = ""
                 logger.info("Local GPU disabled via environment variables.")
+            elif selected_gpus:
+                # Apply GPU isolation for local execution
+                gpus_str = ",".join(map(str, selected_gpus))
+                env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+                env["CUDA_VISIBLE_DEVICES"] = gpus_str
+                
+                # Vulkan isolation
+                env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
+                if "vulkan" in version_tag.lower():
+                    # Apply Vulkan index mapping {0:0, 1:2, 2:1}
+                    vulkan_map = {0: 0, 1: 2, 2: 1}
+                    vulkan_selected = [str(vulkan_map.get(i, i)) for i in selected_gpus]
+                    env["GGML_VK_VISIBLE_DEVICES"] = ",".join(vulkan_selected)
+                else:
+                    env["GGML_VK_VISIBLE_DEVICES"] = gpus_str
+                
+                logger.info(f"Local GPU isolation applied: {gpus_str}")
         else:
             # Default behavior if no params provided
             command.extend(["-ngl", "99"])

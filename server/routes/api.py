@@ -330,6 +330,7 @@ def start_orchestrator():
     version_tag = data.get('version_tag')
     port = data.get('port', 8080)
     launch_params = data.get('launch_params')
+    selected_gpus = data.get('selected_gpus', [])  # Новый параметр
 
     # 1. Берем готовый список rpc_endpoints, который прислал фронтенд (тумблеры)
     rpc_endpoints_str = data.get('rpc_endpoints', '')
@@ -343,13 +344,14 @@ def start_orchestrator():
     else:
         logger.info("Starting orchestrator in LOCAL mode (no RPC endpoints provided)")
 
-    # 3. Передаем rpc_endpoints_str в метод start() нашего оркестратора
+    # 3. Передаем rpc_endpoints_str и selected_gpus в метод start() нашего оркестратора
     success = orchestrator.start(
         version_tag=version_tag,
         model_path=model_path,
         rpc_endpoints=rpc_endpoints_str,  # Теперь здесь будут только включенные тумблеры
         port=int(port),
-        launch_params=launch_params
+        launch_params=launch_params,
+        selected_gpus=selected_gpus  # Передаем выбранные GPU
     )
 
     if success:

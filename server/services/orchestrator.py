@@ -117,25 +117,28 @@ class MainOrchestrator:
                 env["CUDA_VISIBLE_DEVICES"] = "-1"
                 env["HIP_VISIBLE_DEVICES"] = "-1"
                 env["GGML_VK_VISIBLE_DEVICES"] = ""
-                env["SYCL_DEVICE_FILTER"] = ""
                 logger.info("Local GPU disabled via environment variables.")
-            elif selected_gpus:
-                # Убираем дубликаты и сортируем индексы
+            elif selected_gpus is not None:
+                # Даже если список пустой [], мы должны применить изоляцию,
+                # чтобы llama.cpp не увидела лишнего (например, встройку)
                 unique_gpus = sorted(list(set(selected_gpus)))
-                gpus_str = ",".join(map(str, unique_gpus))
+
+                if not unique_gpus:
+                    env["CUDA_VISIBLE_DEVICES"] = "-1"  # Отключаем все, если юзер снял все галки
+                    gpus_str = "None (CPU Mode)"
+                else:
+                    gpus_str = ",".join(map(str, unique_gpus))
+                    env["CUDA_VISIBLE_DEVICES"] = gpus_str
 
                 env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-                env["CUDA_VISIBLE_DEVICES"] = gpus_str
-
-                # Vulkan isolation
                 env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
+
                 if "vulkan" in version_tag.lower():
-                    # Применяем маппинг индексов для Vulkan {0:0, 1:2, 2:1}
                     vulkan_map = {0: 0, 1: 2, 2: 1}
                     vulkan_selected = [str(vulkan_map.get(i, i)) for i in unique_gpus]
                     env["GGML_VK_VISIBLE_DEVICES"] = ",".join(vulkan_selected)
                 else:
-                    env["GGML_VK_VISIBLE_DEVICES"] = gpus_str
+                    env["GGML_VK_VISIBLE_DEVICES"] = gpus_str if unique_gpus else ""
 
                 logger.info(f"Local GPU isolation applied: {gpus_str}")
         else:

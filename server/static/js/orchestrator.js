@@ -191,47 +191,62 @@ export async function populateServerSelect() {
     const select = document.getElementById('main-version-select');
     if (!select) return;
 
-    // 1. Параллельные запросы
+    // 1. ЗАПОМИНАЕМ ТЕКУЩИЙ ВЫБОР (перед обновлением списка)
+    let currentTag = null;
+    if (select.value && select.value.trim().startsWith('{')) {
+        try {
+            currentTag = JSON.parse(select.value).version_tag;
+        } catch (e) {}
+    }
+
+    // 2. ЗАПРОСЫ ДАННЫХ
     const [releasesData, serverVersionsData] = await Promise.all([
         fetch('/api/releases').then(r => r.ok ? r.json() : {}),
         fetch('/api/server/versions').then(r => r.ok ? r.json() : { installed: [] })
     ]);
 
-    // 2. Объединение версий
     const combinedVersions = [];
     const serverInstalled = serverVersionsData.installed || [];
+    const addedTags = new Set(); // Защита от дубликатов
 
-    // Сначала добавляем локальные версии, которых нет в GitHub
-    serverInstalled.forEach(localVersion => {
-        if (!releasesData[localVersion]) {
+    // 3. ДОБАВЛЯЕМ УСТАНОВЛЕННЫЕ ВЕРСИИ (они в приоритете)
+    serverInstalled.forEach(tag => {
+        if (!addedTags.has(tag)) {
             combinedVersions.push({
-                version_tag: localVersion,
-                name: `Local: ${localVersion}`,
-                is_installed: true
+                version_tag: tag,
+                name: releasesData[tag] ? `Llama ${tag}` : `Local: ${tag}`,
+                is_installed: true,
+                // Ищем метаданные в ответах GitHub, если они там есть
+                url: releasesData[tag]?.backends?.[tag.split('_').pop()]?.url || "",
+                filename: releasesData[tag]?.backends?.[tag.split('_').pop()]?.filename || ""
             });
+            addedTags.add(tag);
         }
     });
 
-    // Затем добавляем версии из GitHub
+    // 4. ДОБАВЛЯЕМ ОСТАЛЬНЫЕ ВЕРСИИ ИЗ GITHUB
     for (const releaseTag in releasesData) {
         const release = releasesData[releaseTag];
         for (const backendKey in release.backends) {
-            const backend = release.backends[backendKey];
             const versionTag = `${release.tag_name}_${backendKey}`;
+
+            if (addedTags.has(versionTag)) continue; // Пропускаем, если уже добавлена
+
+            const backend = release.backends[backendKey];
             combinedVersions.push({
                 version_tag: versionTag,
                 name: `Llama ${release.tag_name} (${backendKey})`,
                 url: backend.url,
                 filename: backend.filename,
-                extra_assets: backend.extra_assets || []
+                extra_assets: backend.extra_assets || [],
+                is_installed: false
             });
+            addedTags.add(versionTag);
         }
     }
 
-    // 3. Генерация <option>
-    const currentSelection = select.value;
-    select.innerHTML = '';
-
+    // 5. ОТРИСОВКА <OPTION>
+    select.innerHTML = '<option value="" disabled>Select Version...</option>';
     combinedVersions.forEach(version => {
         const option = document.createElement('option');
         option.value = JSON.stringify({
@@ -241,48 +256,47 @@ export async function populateServerSelect() {
             extra_assets: version.extra_assets || []
         });
 
-        let text = version.name;
-        if (serverInstalled.includes(version.version_tag)) {
-            text += ' ✅ (Installed)';
-        }
-        option.textContent = text;
+        option.textContent = version.is_installed ? `✅ [INSTALLED] ${version.name}` : version.name;
         select.appendChild(option);
     });
 
-    // 4. Автовыбор
-    let targetVersionTag = null;
+    // 6. УМНЫЙ АВТОВЫБОР (чтобы Vulkan не слетал на CUDA)
+    // Приоритет: 1. Текущий выбор -> 2. localStorage -> 3. Config -> 4. Последняя установленная
+    let targetTag = currentTag || localStorage.getItem('lastSelectedOrchestratorTag');
 
-    // Приоритет 1: сохранённая в конфиге версия
-    if (state.serverConfig && state.serverConfig.orchestrator_version) {
-        targetVersionTag = state.serverConfig.orchestrator_version;
-    } else {
-        // Приоритет 2: самая свежая из установленных
+    if (!targetTag && state.serverConfig && state.serverConfig.orchestrator_version) {
+        targetTag = state.serverConfig.orchestrator_version;
+    }
+
+    if (!targetTag && serverInstalled.length > 0) {
         const installedSorted = serverInstalled
             .map(v => {
                 const match = v.match(/^b(\d+)/);
                 return { tag: v, num: match ? parseInt(match[1], 10) : 0 };
             })
             .sort((a, b) => b.num - a.num);
-
-        if (installedSorted.length > 0) {
-            targetVersionTag = installedSorted[0].tag;
-        }
+        targetTag = installedSorted[0].tag;
     }
 
-    // Устанавливаем значение
-    if (targetVersionTag) {
+    if (targetTag) {
         for (const option of select.options) {
             try {
                 const val = JSON.parse(option.value);
-                if (val.version_tag === targetVersionTag) {
+                if (val.version_tag === targetTag) {
                     select.value = option.value;
                     break;
                 }
             } catch (e) {}
         }
-    } else if (!select.value && select.options.length > 0) {
-        select.selectedIndex = 0;
     }
+
+    // СОХРАНЯЕМ ВЫБОР ПРИ РУЧНОМ ИЗМЕНЕНИИ
+    select.onchange = () => {
+        try {
+            const val = JSON.parse(select.value);
+            localStorage.setItem('lastSelectedOrchestratorTag', val.version_tag);
+        } catch(e) {}
+    };
 }
 
 export async function installServerVersion() {
@@ -385,13 +399,12 @@ export async function startOrchestrator() {
         return;
     }
 
-    // --- СБОРКА ВЫБРАННЫХ GPU (из чекбоксов .gpu-toggle) ---
-    const selectedGpus = Array.from(document.querySelectorAll('.gpu-toggle:checked'))
+    // --- ИСПРАВЛЕННЫЙ СБОР ЛОКАЛЬНЫХ GPU (ИЗ ХЕДЕРА) ---
+    const selectedLocalGpus = Array.from(document.querySelectorAll('.local-gpu-toggle:checked'))
         .map(checkbox => parseInt(checkbox.dataset.gpuIndex, 10));
-    console.log('Selected GPUs:', selectedGpus);
-    // -------------------------------------------------------
+    console.log('Main Server Local GPUs:', selectedLocalGpus);
 
-    // --- SMART CLUSTER START LOGIC ---
+    // --- 2. SMART CLUSTER START (СБОР НОД И ИХ КАРТ) ---
     const activeToggles = document.querySelectorAll('.node-enable-toggle:checked');
     const activeNodes = Array.from(activeToggles).map(toggle => ({
         nodeId: toggle.dataset.nodeId,
@@ -401,43 +414,33 @@ export async function startOrchestrator() {
     let rpcEndpoints = [];
 
     if (activeNodes.length > 0) {
-        console.log(`Starting RPC servers on ${activeNodes.length} nodes...`);
-
-        // Отправляем команды на запуск RPC параллельно
         const rpcStartPromises = activeNodes.map(node => {
             const select = document.getElementById(`select-${node.nodeId}`);
             const nodePortInput = document.getElementById(`rpc-port-${node.nodeId}`);
 
-            if (!select || !select.value) {
-                console.warn(`Skipping node ${node.nodeId} - no version selected.`);
-                return Promise.resolve();
-            }
+            if (!select || !select.value) return Promise.resolve();
 
-            // --- СБОРКА ВЫБРАННЫХ GPU ДЛЯ ЭТОЙ НОДЫ ---
-            const selectedGpus = Array.from(document.querySelectorAll(`#node-${node.nodeId} .gpu-toggle:checked`))
+            // СБОРКА GPU КОНКРЕТНО ДЛЯ ЭТОЙ УДАЛЕННОЙ НОДЫ
+            // Используем ID ноды в селекторе, чтобы не захватить чужие карты!
+            const nodeSelectedGpus = Array.from(document.querySelectorAll(`#node-${node.nodeId} .gpu-toggle:checked`))
                 .map(checkbox => parseInt(checkbox.dataset.gpuIndex, 10));
-            console.log(`Node ${node.nodeId}: Selected GPUs:`, selectedGpus);
-            // -----------------------------------------
+
+            console.log(`Node ${node.nodeId}: Remote GPUs selected:`, nodeSelectedGpus);
 
             const versionData = JSON.parse(select.value);
             const rpcPort = parseInt(nodePortInput.value) || 50052;
 
             rpcEndpoints.push(`${node.ip}:${rpcPort}`);
-            return startRpc(node.nodeId, versionData.version_tag, rpcPort, selectedGpus);
+
+            // Отправляем команду ноде запустить RPC-сервер только с её выбранными картами
+            return startRpc(node.nodeId, versionData.version_tag, rpcPort, nodeSelectedGpus);
         });
 
         await Promise.all(rpcStartPromises);
-
-        // Показываем в UI, что ждем прогрева
-        const statusText = document.getElementById('orchestrator-status-text');
-        statusText.innerHTML = `<span class="text-blue-400 font-bold animate-pulse">Warming up RPC nodes...</span>`;
-
-        // Ждем 3 секунды (Прогрев серверов)
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Прогрев
     }
-    // ---------------------------------
 
-    // Собираем параметры запуска
+    // --- 3. ЗАПУСК ГЛАВНОГО ПРОЦЕССА ---
     const launch_params = {
         c: document.getElementById('param-c').value,
         ngl: document.getElementById('param-ngl').value,
@@ -452,7 +455,6 @@ export async function startOrchestrator() {
 
     try {
         const versionData = JSON.parse(versionSelect.value);
-
         await fetch('/api/orchestrator/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -460,9 +462,9 @@ export async function startOrchestrator() {
                 version_tag: versionData.version_tag,
                 model_path: modelSelect.value,
                 port: parseInt(portInput.value) || 8080,
-                rpc_endpoints: rpcEndpoints.join(','), // <-- Передаем строку IP:PORT
+                rpc_endpoints: rpcEndpoints.join(','),
                 launch_params: launch_params,
-                selected_gpus: selectedGpus // <-- Добавляем массив выбранных GPU
+                selected_gpus: selectedLocalGpus // ПЕРЕДАЕМ ТОЛЬКО ЛОКАЛЬНЫЕ ИНДЕКСЫ
             })
         });
 
